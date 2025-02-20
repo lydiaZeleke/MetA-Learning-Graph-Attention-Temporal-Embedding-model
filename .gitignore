@@ -169,3 +169,17 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+# Ignore compiled Python files
+__pycache__/
+*.pyc
+
+# Ignore checkpoints, plots, output, and old scripts
+checkpoints/
+plots/
+output/
+old_scripts/
+
+# Ignore backup files and results
+backup_files_results/
+
