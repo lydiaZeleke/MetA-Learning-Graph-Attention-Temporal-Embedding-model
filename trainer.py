@@ -8,11 +8,16 @@ from os import path, makedirs
 import time
 from datetime import datetime 
 import matplotlib.pyplot as plt
+import higher
+from copy import deepcopy
+from anomaly_detection import AnomalyDetector
+from library.eval_methods import *
 
+torch.autograd.set_detect_anomaly(True)
 
 
 class Trainer:
-    def __init__(self, target_dim, model, train_loader, val_loader, criterion, optimizer, device, save_path, checkpoint_dir="checkpoints"):
+    def __init__(self, target_dim, model, train_loader, val_loader, criterion, optimizer, device, save_path, checkpoint_dir="checkpoints", inner_lr=0.01, meta_lr= 0.001):
         """
         Initialize the trainer with model, data loaders, loss, optimizer, and device.
         :param model: PyTorch model to train
@@ -42,14 +47,222 @@ class Trainer:
             "val_reconstruction":[],
             "val_combined":[]
         }
-        
+        self.inner_lr = inner_lr
+        self.meta_lr = meta_lr
+
         self.epoch_times = []
         makedirs(checkpoint_dir, exist_ok=True)
-        
+                
+        # Outer (meta) optimizer on self.model
+        self.outer_optimizer = torch.optim.Adam(self.model.parameters(), lr=self.meta_lr)
+        self.model.to(self.device)
+
+           
     def count_parameters(self, model):
         return sum(p.numel() for p in model.parameters() if p.requires_grad)
+    #/''''''''''''''' META TRAINING AND EVALUATION '''''''''''''''\
 
-    def train(self, num_epochs, patience=5, min_delta=0.001):
+    def compute_loss(self, inputs, targets, recons, preds):
+        # Example from your code
+        prediction_loss = torch.sqrt(self.pred_criterion(targets, preds))
+        recon_loss = torch.sqrt(self.recon_criterion(inputs, recons))
+        return prediction_loss + recon_loss
+
+    def meta_train(self, tasks, num_epochs=5, adaptation_steps=1):
+        """
+        :param tasks: dict { task_id: (support_loader, query_loader), ... }
+        :param num_epochs: number of meta-training epochs
+        :param adaptation_steps: number of gradient updates on each support set
+        """
+        for epoch in range(num_epochs):
+            self.model.train()
+            self.outer_optimizer.zero_grad()
+
+            # tasks = {k: tasks[k] for k in list(tasks.keys())[:1]}  #For debugging only --- limiting to a single task for quick evaluation
+
+            # Iterate over your tasks
+            for task_id, (support_loader, query_loader) in tasks.items():
+
+                # -- 1) Create a 'functional' version of the model inside higher.innerloop_ctx --
+                # We supply the *inner optimizer* (e.g. SGD).
+                # For FOMAML => track_higher_grads=False (no second derivative).
+                with higher.innerloop_ctx(
+                        self.model, 
+                        torch.optim.SGD(self.model.parameters(), lr=self.inner_lr),
+                        copy_initial_weights=True,
+                        track_higher_grads=False
+                ) as (fmodel, diffopt):
+
+                    # -- 2) Inner Loop: adapt on support set --
+                    for _ in range(adaptation_steps):
+                        # Option: sum or average loss across all support batches
+                        support_loss_accum = 0.0
+
+                        for (x_sup, y_sup) in tqdm(support_loader, desc=f"Task Specific Training- task: {task_id}"):
+                            x_sup, y_sup = x_sup.to(self.device), y_sup.to(self.device)
+                            recons_sup, preds_sup = fmodel(x_sup)
+                            
+                            ############# Dimension adjustment #####
+                            if self.target_dim[0] is not None:
+                                x_sup = x_sup[:, :, self.target_dim].squeeze(-1)
+                                y_sup = y_sup[:, :, self.target_dim].squeeze(-1)
+
+                            if preds_sup.ndim == 3:
+                                preds_sup = preds_sup.squeeze(1)
+                            if y_sup.ndim == 3:
+                                y_sup = y_sup.squeeze(1)
+                             ############# 
+
+                            loss_sup = self.compute_loss(x_sup, y_sup, recons_sup, preds_sup)
+                            support_loss_accum += loss_sup
+                        support_loss_accum /= len(support_loader)
+                        
+                        # Update the functional model's params
+                        diffopt.step(support_loss_accum)
+
+                    # -- 3) Outer Loop: compute query-set loss on the adapted model --
+                    query_loss_accum = 0.0
+                    for (x_q, y_q) in tqdm(query_loader, desc=f"Meta-Training - task: {task_id}"):
+                        x_q, y_q = x_q.to(self.device), y_q.to(self.device)
+                        recons_q, preds_q = fmodel(x_q)  # fmodel has updated weights
+                        ############# Dimension adjustment #####
+                        if self.target_dim[0] is not None:
+                            x_q = x_q[:, :, self.target_dim].squeeze(-1)
+                            y_q = y_q[:, :, self.target_dim].squeeze(-1)
+
+                        if preds_q.ndim == 3:
+                            preds_q = preds_q.squeeze(1)
+                        if y_q.ndim == 3:
+                            y_q = y_q.squeeze(1)
+                        ############# 
+                        loss_q = self.compute_loss(x_q, y_q, recons_q, preds_q)
+                        query_loss_accum += loss_q
+                    query_loss_accum /= len(query_loader)
+
+                    # Backprop w.r.t. the *original* meta-model (self.model)
+                    query_loss_accum.backward()
+
+            # After all tasks, update the meta-parameters
+            self.outer_optimizer.step()
+            print(f"[Epoch {epoch+1}/{num_epochs}] done.")
+
+    def meta_test(self, anomaly_det_args, test_tasks, label_tasks, adaptation_steps=1):
+        """
+        Evaluate on new tasks.
+        :param test_tasks: dict { task_id: (support_loader, query_loader), ... }
+        :param y_test: ground-truth anomaly labels for the query sets
+        """
+        self.model.eval()
+        all_results = []
+        meta_mode = True
+
+        window_size=anomaly_det_args[0]
+        n_features=anomaly_det_args[1]
+        pred_args=anomaly_det_args[2]
+
+       
+        for task_idx, (task_id, (support_loader, query_loader)) in enumerate(test_tasks.items()):
+            # We can adapt the model again, but for meta-testing 
+            # we often do real gradient steps on 'fmodel' (no second-order needed).
+            with higher.innerloop_ctx(
+                self.model,
+                torch.optim.SGD(self.model.parameters(), lr=self.inner_lr),
+                copy_initial_weights=True,
+                track_higher_grads=False
+            ) as (fmodel, diffopt):
+                # Adapt with support set
+                for _ in range(adaptation_steps):
+                    support_loss_accum = 0.0
+                    for (x_sup, y_sup) in support_loader:
+                        x_sup, y_sup = x_sup.to(self.device), y_sup.to(self.device)
+                        recons_sup, preds_sup = fmodel(x_sup)
+                        ############# Dimension adjustment #####
+                        if self.target_dim[0] is not None:
+                            x_sup = x_sup[:, :, self.target_dim].squeeze(-1)
+                            y_sup = y_sup[:, :, self.target_dim].squeeze(-1)
+
+                        if preds_sup.ndim == 3:
+                            preds_sup = preds_sup.squeeze(1)
+                        if y_sup.ndim == 3:
+                            y_sup = y_sup.squeeze(1)
+                        ############# 
+                        support_loss_accum += self.compute_loss(x_sup, y_sup, recons_sup, preds_sup)
+                    support_loss_accum /= len(support_loader)
+                    diffopt.step(support_loss_accum)
+                
+                # Now fmodel is adapted. We can do anomaly detection or just measure performance:
+                # Example: pass fmodel to your AnomalyDetector
+                with torch.no_grad():
+                    def adapted_forward(x_batch):
+                        return fmodel(x_batch)  # recons, preds
+
+                    
+                    anomaly_detector = AnomalyDetector(fmodel, #adapted_forward,
+                                                        window_size,
+                                                        n_features,
+                                                        pred_args,
+                                                        meta_mode)
+                
+            
+                    # Evaluate scores
+                    # support_data = support_loader.dataset.data
+                    # support_scores = anomaly_detector.get_score(support_data)
+
+                    # query_data = query_loader.dataset.data
+                    # query_scores = anomaly_detector.get_score(query_data)
+
+                    # Extract the correct portion of y_test
+                    task_y_test = label_tasks[task_id][1].dataset.data
+
+                    #remove encounter column in the label data
+                    support_data = support_loader.dataset.data
+                    query_data = query_loader.dataset.data
+                    task_y_test = task_y_test[:,-2]
+                    label_data = task_y_test[window_size:]
+                    all_results = anomaly_detector.predict_anomalies(support_data, query_data, label_data, task_idx=task_id)
+
+
+                    # # Evaluate
+                    # epsilon_results = epsilon_eval(support_scores['A_Score_Global'],
+                    #                                 query_scores['A_Score_Global'],
+                    #                                 task_y_test)
+                    # pot_results = pot_eval(support_scores['A_Score_Global'],
+                    #                         query_scores['A_Score_Global'],
+                    #                         task_y_test,
+                    #                         q=..., level=...)
+                    # bf_results = bf_search(query_scores['A_Score_Global'], task_y_test)
+
+                    # print(f"Task {task_idx + 1}: Epsilon F1={epsilon_results['f1']:.4f}, "
+                    #         f"POT F1={pot_results['f1']:.4f}, BF F1={bf_results['f1']:.4f}")
+
+                    # epsilon_results = epsilon_eval(support_scores['A_Score_Global'], 
+                    #                     query_scores['A_Score_Global'], 
+                    #                     task_y_test, reg_level=anomaly_det_args[2]['reg_level']))
+                    # pot_results = pot_eval(support_scores['A_Score_Global'], 
+                    #                     query_scores['A_Score_Global'], 
+                    #                     task_y_test, 
+                    #                     q=anomaly_det_args[2]['q'], 
+                    #                     level=anomaly_det_args[2]['level'])
+                    # bf_results = bf_search(query_scores['A_Score_Global'], task_y_test)
+
+                    # # Log results
+                    # print(f"Task {task_idx + 1}:")
+                    # print(f"  Epsilon Method: F1={epsilon_results['f1']:.4f}, Precision={epsilon_results['precision']:.4f}, Recall={epsilon_results['recall']:.4f}")
+                    # print(f"  POT Method: F1={pot_results['f1']:.4f}, Precision={pot_results['precision']:.4f}, Recall={pot_results['recall']:.4f}")
+                    # print(f"  Best-F1 Search: F1={bf_results['f1']:.4f}, Precision={bf_results['precision']:.4f}, Recall={bf_results['recall']:.4f}")
+
+
+                    # all_results.append({"epsilon": epsilon_results, "pot": pot_results, "bf": bf_results})
+                   
+
+        # Aggregate final results
+        return self.aggregate_results(all_results)
+
+    def aggregate_results(self, all_results):
+        # Example aggregator
+        return {}
+    #/'''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''\
+    def train(self, num_epochs):
         """""
         Train the model for a specified number of epochs.
         """

@@ -25,9 +25,11 @@ def get_parser():
         help="Normalization technique to use: 'min_max' or 'z-score'."
     )
     parser.add_argument("--dataset", type=str.upper, default="SMD")
+    parser.add_argument("--meta_training", type=str2bool, default=False)
     parser.add_argument("--group", type=str, default="1-1", help="Required for SMD dataset. <group_index>-<index>")
-    parser.add_argument("--lookback", type=int, default=50) #100
+    parser.add_argument("--lookback", type=int, default=50)
     parser.add_argument("--spec_res", type=str2bool, default=False)
+    
 
     # -- Model params ---
 
@@ -79,5 +81,13 @@ def get_parser():
     parser.add_argument("--level", type=float, default=None)
     parser.add_argument("--q", type=float, default=None)
     parser.add_argument("--dynamic_pot", type=str2bool, default=False)
+
+    # # --- Meta-Learning params ---
+    parser.add_argument("--inner_lr", type=int, default=0.001)
+    parser.add_argument("--meta_lr", type=int, default=0.001)
+
+
+    parser.add_argument("--test_adaptation_steps", type=int, default=2)
+    parser.add_argument("--train_adaptation_steps", type=int, default=4)
 
     return parser

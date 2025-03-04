@@ -141,9 +141,10 @@ def fetch_data(args):
                 x_train_conc.extend(x_train)
                 x_test_conc.extend(x_test)
 
+        # --- Use the ff three lines of code to normalize all data files together
         # normalize_technique = args["normalize_technique"].lower()
-        # x_train, scaler = normalize_data(x_train_conc, scaler=None, normalize_technique=normalize_technique)
-        # x_test, _ = normalize_data(x_test_conc, scaler=scaler, normalize_technique=normalize_technique)
+        # x_train_conc, scaler = normalize_data(x_train_conc, scaler=None, normalize_technique=normalize_technique)
+        # x_test_conc, _ = normalize_data(x_test_conc, scaler=scaler, normalize_technique=normalize_technique)
         data_save_path = path.join(output_folder, dataset + "_processed.pkl")
         save_tensors_to_pickle((np.array(x_train_conc), np.array(x_test_conc), np.array(test_labels)), data_save_path)
     

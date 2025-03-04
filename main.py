@@ -18,6 +18,7 @@ if __name__ == "__main__":
     parser = get_parser()
     args = parser.parse_args()
 
+    meta_mode = args.meta_training
     dataset = args.dataset
     window_size = args.lookback
     group_index = args.group[0]
@@ -31,6 +32,10 @@ if __name__ == "__main__":
     shuffle_dataset = args.shuffle_dataset
     patience = args.patience
     min_delta = args.min_delta
+    train_adaptation_steps = args.train_adaptation_steps
+    test_adaptation_steps = args.test_adaptation_steps
+    inner_lr = args.inner_lr
+    meta_lr = args.meta_lr
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     if dataset == 'CUSTOM':
@@ -62,8 +67,7 @@ if __name__ == "__main__":
     if dataset == 'CUSTOM':
         x_train = x_train.float()
         x_test = x_test.float()
-        # y_test = y_test.float()
-
+ 
     n_features = x_train.shape[1]
     output_size = n_features
 
@@ -78,21 +82,26 @@ if __name__ == "__main__":
         print(f"Will forecast and reconstruct input features: {target_dims}")
         out_dim = len(target_dims)
 
-    train_dataset = SlidingWindowDataset2(x_train, window_size, target_dims) if dataset.upper() == 'CUSTOM' else SlidingWindowDataset(x_train, window_size, target_dims)
-    test_dataset = SlidingWindowDataset2(x_test, window_size, target_dims) if dataset.upper() == 'CUSTOM' else SlidingWindowDataset(x_test, window_size, target_dims)
+     #''''''''''' META-LEARNING IMPLEMENTATION '''''''''''''#
+    if meta_mode:
+        train_loaders, test_loaders, label_loaders = prepare_dataloaders(x_train, x_test, y_test, window_size, target_dims, batch_size)
+        val_loaders = None
 
-    train_loader, val_loader, test_loader = generate_data_loaders(
-        train_dataset, batch_size, val_split, shuffle_dataset, test_dataset=test_dataset
-    )
+     #''''''''''' BASE MODEL IMPLEMENTATION '''''''''''''#
+    else:
+        train_dataset = SlidingWindowDataset2(x_train, window_size, target_dims) if dataset.upper() == 'CUSTOM' else SlidingWindowDataset(x_train, window_size, target_dims)
+        test_dataset = SlidingWindowDataset2(x_test, window_size, target_dims) if dataset.upper() == 'CUSTOM' else SlidingWindowDataset(x_test, window_size, target_dims)
 
+        train_loaders, val_loaders, test_loaders = generate_data_loaders(
+            train_dataset, batch_size, val_split, shuffle_dataset, test_dataset=test_dataset
+        )
+ 
     # model = GRUAT(n_features, args.gru_hidden_dim, args.gru_num_layers, output_size, window_size, args.dropout, args.alpha, args.gru_final_hid_dim)
     
-    model = GRUAT(n_features, out_dim, window_size, args.memory_dim, args.num_memory_slots, args.node_embed_dim, args.num_heads,
+    model = GRUAT(n_features, out_dim, window_size, args.memory_dim, args.num_memory_slots, args.node_embed_dim, 
                     args.gru_num_layers, args.gru_hidden_dim, args.tcn_embed_dim, args.tcn_kernel_size, args.fc_n_layers, 
-                    args.fc_hid_dim, args.vae_latent_dim,  args.recon_hid_dim, args.recon_n_layers, args.dropout, args.alpha)
+                    args.fc_hid_dim, args.vae_latent_dim, args.recon_hid_dim, args.recon_n_layers, args.dropout, args.alpha)
     
- 
-
     # Define loss and optimizer
     criterion = nn.MSELoss()  # For regression
     # optimizer = torch.optim.Adam(model.parameters(), lr=init_lr)
@@ -102,27 +111,30 @@ if __name__ == "__main__":
     trainer = Trainer(
         model=model,
         target_dim = target_dims,
-        train_loader=train_loader,
-        val_loader=val_loader,
+        train_loader=train_loaders,
+        val_loader=val_loaders,
         criterion=criterion,
         optimizer=optimizer,
         device=device,
-        save_path=model_save_path
+        save_path=model_save_path,
+        inner_lr=inner_lr,
+        meta_lr= meta_lr
     )
 
-    trainer.train(n_epochs, patience, min_delta)
+
+   
+    if meta_mode:  #''''''''''' META-LEARNING IMPLEMENTATION - TASK-SPECIFIC LEARNING AND META-TRAINING'''''''''''''#
+        trainer.meta_train(train_loaders, n_epochs, train_adaptation_steps)
+    else:
+         trainer.train(n_epochs)
+
+    #''''''''''' ''''''''''' '''''''''''''#
+
 
     ########################
 
     
     # plot_losses(trainer.losses, save_path=save_path, plot=False)
-
-    # Check test loss
-    test_loss = trainer.validate(test_loader)
-    print(f"Test forecast loss: {test_loss[0]:.5f}")
-    print(f"Test reconstruction loss: {test_loss[1]:.5f}")
-    print(f"Test total loss: {test_loss[2]:.5f}")
-
     # Some suggestions for POT args
     level_q_dict = {
         "SMAP": (0.90, 0.005),
@@ -145,7 +157,20 @@ if __name__ == "__main__":
     key = "SMD-" + args.group[0] if dataset == "SMD" else dataset
     reg_level = reg_level_dict[key]
   
-    trainer.load(f"{model_save_path}/model.pt")
+   
+    if not meta_mode:
+    # Check test loss
+     #''''''''''' BASE MODEL IMPLEMENTATION '''''''''''''#
+        test_loss = trainer.validate(test_loaders)
+
+        print(f"Test forecast loss: {test_loss[0]:.5f}")
+        print(f"Test reconstruction loss: {test_loss[1]:.5f}")
+        print(f"Test total loss: {test_loss[2]:.5f}")
+
+        trainer.load(f"{model_save_path}/model.pt")
+        best_model = trainer.model
+    #''''''''''' ''''''''''' '''''''''''''#
+
     prediction_args = {
         'dataset': dataset,
         "target_dims": target_dims,
@@ -158,13 +183,22 @@ if __name__ == "__main__":
         "reg_level": reg_level,
         "save_path": model_save_path
     }
-    best_model = trainer.model
-    predictor = AnomalyDetector(
-        best_model,
-        window_size,
-        n_features,
-        prediction_args,
-    )
 
-    label = y_test[window_size:] if y_test is not None else None
-    predictor.predict_anomalies(x_train, x_test, label)
+    
+    if meta_mode: #''''''''''' META-TESTING IMPLEMENTATION'''''''''''''#
+        anomaly_detector_args = [window_size, n_features, prediction_args]
+        evaluation_results = trainer.meta_test(anomaly_detector_args, test_loaders, label_loaders, test_adaptation_steps)
+
+        print(evaluation_results)
+
+    else:     #''''''''''' BASE MODEL IMPLEMENTATION '''''''''''''#
+        predictor = AnomalyDetector(
+            best_model,
+            window_size,
+            n_features,
+            prediction_args,
+        )
+
+        label = y_test[window_size:] if y_test is not None else None
+        predictor.predict_anomalies(x_train, x_test, label)
+    #''''''''''' ''''''''''' '''''''''''''#

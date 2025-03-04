@@ -6,7 +6,8 @@ from csv import reader
 from os import listdir, makedirs, path
 from torch.utils.data import DataLoader, Dataset, SubsetRandomSampler
 from pickle import dump, load
-import torch.nn as nn
+from sklearn.model_selection import train_test_split
+
 
 class SlidingWindowDataset(Dataset):
     def __init__(self, data, window,target_dim=None,  stride = 1, horizon=1):
@@ -84,7 +85,7 @@ def get_target_dims(dataset):
                      returns None if all input dimensions should be modeled
     """
     if dataset == "SMAP":
-        return [0]
+        return None #[0]
     elif dataset == "MSL":
         return None #[0]
     elif dataset == "CUSTOM":
@@ -164,3 +165,60 @@ def adjust_shape(data, window_size, is_score=False, test_data=None):
     return reshaped_data
 
 
+#'''''''''''''''''''  MAML Implementation ''''''''''''''''''#
+# Function to split dataset into tasks
+def split_dataset_into_tasks(data):
+    tasks = {}
+    encounter_numbers = np.unique(data[:, -1])
+    for encounter_num in encounter_numbers:
+        task_data = data[data[:, -1] == encounter_num]
+        tasks[int(encounter_num)] = task_data
+    return tasks
+
+# Function to split each task into support and query sets
+def split_task_into_support_and_query(task_data, test_size=0.2):
+    support_data, query_data = train_test_split(task_data, test_size=test_size, shuffle=True, random_state=42)
+    return support_data, query_data
+
+# Generate DataLoaders for support and query sets
+def generate_task_dataloaders(tasks, window_size, target_dims, batch_size):
+    task_dataloaders = {}
+    for task_id, task_data in tasks.items():
+        support_data, query_data = split_task_into_support_and_query(task_data)
+
+        support_dataset = SlidingWindowDataset(support_data, window_size, target_dims)
+        query_dataset = SlidingWindowDataset(query_data, window_size, target_dims)
+
+        support_loader = DataLoader(support_dataset, batch_size=batch_size, shuffle=True)
+        query_loader = DataLoader(query_dataset, batch_size=batch_size, shuffle=False)
+
+        task_dataloaders[task_id] = (support_loader, query_loader)
+
+    return task_dataloaders
+def merge_labels_w_encs (x_test, y_test): 
+    if y_test.ndim == 1:
+        y_test = y_test.reshape(-1, 1)
+
+    encounter_col = x_test[:, -1].reshape(-1, 1)     # shape (N,1)
+
+    merged_y_test = np.hstack([y_test, encounter_col])  # shape (N, D)
+    return merged_y_test
+
+# Main function to process x_train and x_test
+def prepare_dataloaders(x_train, x_test, y_test, window_size, target_dims, batch_size):
+    # Split datasets into tasks based on encounter number
+    train_tasks = split_dataset_into_tasks(x_train)
+    test_tasks = split_dataset_into_tasks(x_test)
+
+    y_test = merge_labels_w_encs(x_test, y_test)
+    label_tasks = split_dataset_into_tasks(y_test)
+
+
+    # Generate DataLoaders for training and testing tasks
+    train_dataloaders = generate_task_dataloaders(train_tasks, window_size, target_dims, batch_size)
+    test_dataloaders = generate_task_dataloaders(test_tasks, window_size, target_dims, batch_size)
+    label_dataloaders = generate_task_dataloaders(label_tasks, window_size, target_dims, batch_size)
+
+
+
+    return train_dataloaders, test_dataloaders, label_dataloaders

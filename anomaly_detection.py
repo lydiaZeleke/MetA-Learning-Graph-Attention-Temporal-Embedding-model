@@ -17,7 +17,7 @@ class AnomalyDetector:
 
     """
 
-    def __init__(self, model, window_size, n_features, pred_args, summary_file_name="summary.txt"):
+    def __init__(self, model, window_size, n_features, pred_args, meta_learning_mode = False, summary_file_name="summary.txt"):
         self.model = model
         self.window_size = window_size
         self.n_features = n_features
@@ -35,6 +35,7 @@ class AnomalyDetector:
         self.use_cuda = True
         self.pred_args = pred_args
         self.summary_file_name = summary_file_name
+        self.meta_mode = meta_learning_mode
 
     def get_score(self, values):
         """Calculate anomaly scores using the hybrid model (GRU + TCN + GAT).
@@ -106,7 +107,7 @@ class AnomalyDetector:
         return pd.DataFrame(df_dict)
 
     def predict_anomalies(self, train, test, true_anomalies, load_scores=False, save_output=True,
-                          scale_scores=False):
+                          scale_scores=False, task_idx= None):
         """ Predicts anomalies
 
         :param train: 2D array of train multivariate time series data
@@ -134,8 +135,9 @@ class AnomalyDetector:
             train_anomaly_scores = train_pred_df['A_Score_Global'].values
             test_anomaly_scores = test_pred_df['A_Score_Global'].values
 
-            train_anomaly_scores = self.adjust_anomaly_scores(train_anomaly_scores, self.dataset, True, self.window_size)
-            test_anomaly_scores = self.adjust_anomaly_scores(test_anomaly_scores, self.dataset, False, self.window_size)
+            if not self.meta_mode:
+                train_anomaly_scores = self.adjust_anomaly_scores(train_anomaly_scores, self.dataset, True, self.window_size)
+                test_anomaly_scores = self.adjust_anomaly_scores(test_anomaly_scores, self.dataset, False, self.window_size)
 
             # Update df
             train_pred_df['A_Score_Global'] = train_anomaly_scores
@@ -187,6 +189,11 @@ class AnomalyDetector:
         print(f"Results using best f1 score search:\n {bf_eval}")
         print(f"Results using AUC-ROC: {auc_roc:.4f}, AUC-PR: {auc_pr:.4f}")
 
+        if self.meta_mode:
+             print(f"Task {task_idx + 1}:")
+        print(f"Results using epsilon method:\n {e_eval}")
+        print(f"Results using peak-over-threshold method:\n {p_eval}")
+        print(f"Results using best f1 score search:\n {bf_eval}")
 
         for k, v in e_eval.items():
             if not type(e_eval[k]) == list:
@@ -199,10 +206,13 @@ class AnomalyDetector:
 
         # Save
         summary = {"epsilon_result": e_eval, "pot_result": p_eval, "bf_result": bf_eval}
+
+        if self.meta_mode:
+            return summary
+
         with open(f"{self.save_path}/{self.summary_file_name}", "w") as f:
             json.dump(summary, f, indent=2)
 
-        
         # Save anomaly predictions made using epsilon method (could be changed to pot or bf-method)
         if save_output:
             global_epsilon = e_eval["threshold"]
