@@ -1,3 +1,6 @@
+import json
+import csv
+import random
 import numpy as np
 import torch
 import torch.nn as nn
@@ -56,95 +59,154 @@ class Trainer:
         # Outer (meta) optimizer on self.model
         self.outer_optimizer = torch.optim.Adam(self.model.parameters(), lr=self.meta_lr)
         self.model.to(self.device)
+        # self.model = torch.compile(self.model)
 
            
     def count_parameters(self, model):
         return sum(p.numel() for p in model.parameters() if p.requires_grad)
+    
+
     #/''''''''''''''' META TRAINING AND EVALUATION '''''''''''''''\
+
+    def generate_json_log_writer(self, base_dir="meta_training_logs"):
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        support_log_path = f"{base_dir}/support_logs_{timestamp}.json"
+        query_log_path = f"{base_dir}/query_logs_{timestamp}.json"
+
+        def write_logs(support_logs, query_logs):
+            with open(support_log_path, "w") as f:
+                json.dump(support_logs, f, indent=4)
+            with open(query_log_path, "w") as f:
+                json.dump(query_logs, f, indent=4)
+            return support_log_path, query_log_path
+
+        return write_logs
+    
+    def generate_csv_log_writer(self, base_dir="meta_training_logs", is_meta_train=False):
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        timestamp_type= timestamp + "_train" if is_meta_train else timestamp + "_test"
+        support_log_path = f"{base_dir}/support_logs_{timestamp_type}.csv"
+        query_log_path = f"{base_dir}/query_logs_{timestamp_type}.csv"
+
+        def write_logs_to_csv(support_logs, query_logs):
+            with open(support_log_path, mode="w", newline="") as f:
+                writer = csv.DictWriter(f, fieldnames=["task_id", "pred_loss", "recon_loss", "total_loss"])
+                writer.writeheader()
+                writer.writerows(support_logs)
+
+            with open(query_log_path, mode="w", newline="") as f:
+                writer = csv.DictWriter(f, fieldnames=["task_id", "pred_loss", "recon_loss", "total_loss"])
+                writer.writeheader()
+                writer.writerows(query_logs)
+
+            return support_log_path, query_log_path
+
+        return write_logs_to_csv
 
     def compute_loss(self, inputs, targets, recons, preds):
         # Example from your code
         prediction_loss = torch.sqrt(self.pred_criterion(targets, preds))
         recon_loss = torch.sqrt(self.recon_criterion(inputs, recons))
-        return prediction_loss + recon_loss
+        return prediction_loss, recon_loss, prediction_loss + 0.8 * recon_loss
 
     def meta_train(self, tasks, num_epochs=5, adaptation_steps=1):
-        """
-        :param tasks: dict { task_id: (support_loader, query_loader), ... }
-        :param num_epochs: number of meta-training epochs
-        :param adaptation_steps: number of gradient updates on each support set
-        """
+        epoch_logs = {"support": [], "query": []}
+        write_logs = self.generate_csv_log_writer(is_meta_train=True)
+
+        # task_items = list(tasks.items())
+        # random.shuffle(task_items)
+
         for epoch in range(num_epochs):
             self.model.train()
             self.outer_optimizer.zero_grad()
+            support_losses = []
+            query_losses = []
+            meta_loss = 0.0
 
             # tasks = {k: tasks[k] for k in list(tasks.keys())[:1]}  #For debugging only --- limiting to a single task for quick evaluation
-
-            # Iterate over your tasks
             for task_id, (support_loader, query_loader) in tasks.items():
-
-                # -- 1) Create a 'functional' version of the model inside higher.innerloop_ctx --
-                # We supply the *inner optimizer* (e.g. SGD).
-                # For FOMAML => track_higher_grads=False (no second derivative).
                 with higher.innerloop_ctx(
-                        self.model, 
-                        torch.optim.SGD(self.model.parameters(), lr=self.inner_lr),
-                        copy_initial_weights=True,
-                        track_higher_grads=False
+                    self.model,
+                    torch.optim.SGD(self.model.parameters(), lr=self.inner_lr),
+                    copy_initial_weights=True,
+                    track_higher_grads=False
                 ) as (fmodel, diffopt):
 
-                    # -- 2) Inner Loop: adapt on support set --
+                    is_new_task = True
+                    # ---- Inner Loop ----
+                    support_loss_accum = support_pred_loss_accum = support_recon_loss_accum = 0.0
                     for _ in range(adaptation_steps):
-                        # Option: sum or average loss across all support batches
-                        support_loss_accum = 0.0
+                        for (x_sup, y_sup) in tqdm(support_loader, desc=f"Task-Specific Training - task: {task_id}"):
 
-                        for (x_sup, y_sup) in tqdm(support_loader, desc=f"Task Specific Training- task: {task_id}"):
-                            x_sup, y_sup = x_sup.to(self.device), y_sup.to(self.device)
-                            recons_sup, preds_sup = fmodel(x_sup)
-                            
-                            ############# Dimension adjustment #####
+                            x_sup, y_sup = x_sup[:, :, :-1].to(self.device), y_sup[:, :, :-1].to(self.device)
+                            recons_sup, preds_sup = fmodel(x_sup, is_new_task)
+                            is_new_task = False
+
+                            # Dimension adjustment
                             if self.target_dim[0] is not None:
                                 x_sup = x_sup[:, :, self.target_dim].squeeze(-1)
                                 y_sup = y_sup[:, :, self.target_dim].squeeze(-1)
+                            if preds_sup.ndim == 3: preds_sup = preds_sup.squeeze(1)
+                            if y_sup.ndim == 3: y_sup = y_sup.squeeze(1)
 
-                            if preds_sup.ndim == 3:
-                                preds_sup = preds_sup.squeeze(1)
-                            if y_sup.ndim == 3:
-                                y_sup = y_sup.squeeze(1)
-                             ############# 
-
-                            loss_sup = self.compute_loss(x_sup, y_sup, recons_sup, preds_sup)
+                            pred_loss_sup, recon_loss_sup, loss_sup = self.compute_loss(x_sup, y_sup, recons_sup, preds_sup)
                             support_loss_accum += loss_sup
+                            support_pred_loss_accum += pred_loss_sup
+                            support_recon_loss_accum += recon_loss_sup
+
                         support_loss_accum /= len(support_loader)
-                        
-                        # Update the functional model's params
+                        support_pred_loss_accum /= len(support_loader)
+                        support_recon_loss_accum /= len(support_loader)
                         diffopt.step(support_loss_accum)
 
-                    # -- 3) Outer Loop: compute query-set loss on the adapted model --
-                    query_loss_accum = 0.0
+                    # ---- Outer Loop (Query) ----
+                    query_loss_accum = query_pred_loss_accum = query_recon_loss_accum = 0.0
                     for (x_q, y_q) in tqdm(query_loader, desc=f"Meta-Training - task: {task_id}"):
-                        x_q, y_q = x_q.to(self.device), y_q.to(self.device)
-                        recons_q, preds_q = fmodel(x_q)  # fmodel has updated weights
-                        ############# Dimension adjustment #####
+                        x_q, y_q = x_q[:, :, :-1].to(self.device), y_q[:, :, :-1].to(self.device)
+                        recons_q, preds_q = fmodel(x_q)
                         if self.target_dim[0] is not None:
                             x_q = x_q[:, :, self.target_dim].squeeze(-1)
                             y_q = y_q[:, :, self.target_dim].squeeze(-1)
+                        if preds_q.ndim == 3: preds_q = preds_q.squeeze(1)
+                        if y_q.ndim == 3: y_q = y_q.squeeze(1)
 
-                        if preds_q.ndim == 3:
-                            preds_q = preds_q.squeeze(1)
-                        if y_q.ndim == 3:
-                            y_q = y_q.squeeze(1)
-                        ############# 
-                        loss_q = self.compute_loss(x_q, y_q, recons_q, preds_q)
+                        pred_loss_q, recon_loss_q, loss_q = self.compute_loss(x_q, y_q, recons_q, preds_q)
                         query_loss_accum += loss_q
+                        query_pred_loss_accum += pred_loss_q
+                        query_recon_loss_accum += recon_loss_q
+
                     query_loss_accum /= len(query_loader)
+                    query_pred_loss_accum /= len(query_loader)
+                    query_recon_loss_accum /= len(query_loader)
 
-                    # Backprop w.r.t. the *original* meta-model (self.model)
-                    query_loss_accum.backward()
+                    # Accumulate meta loss
+                    meta_loss += query_loss_accum
 
-            # After all tasks, update the meta-parameters
+                    # Logging
+                    support_losses.append(support_loss_accum.item())
+                    query_losses.append(query_loss_accum.item())
+
+                    epoch_logs["support"].append({
+                        "task_id": task_id,
+                        "pred_loss": support_pred_loss_accum.item(),
+                        "recon_loss": support_recon_loss_accum.item(),
+                        "total_loss": support_loss_accum.item()
+                    })
+
+                    epoch_logs["query"].append({
+                        "task_id": task_id,
+                        "pred_loss": query_pred_loss_accum.item(),
+                        "recon_loss": query_recon_loss_accum.item(),
+                        "total_loss": query_loss_accum.item()
+                    })
+
+            # Single backward after all tasks
+            meta_loss.backward()
             self.outer_optimizer.step()
+
             print(f"[Epoch {epoch+1}/{num_epochs}] done.")
+
+        write_logs(epoch_logs["support"], epoch_logs["query"])
 
     def meta_test(self, anomaly_det_args, test_tasks, label_tasks, adaptation_steps=1):
         """
@@ -155,15 +217,29 @@ class Trainer:
         self.model.eval()
         all_results = []
         meta_mode = True
+        label_index = 1
 
         window_size=anomaly_det_args[0]
         n_features=anomaly_det_args[1]
         pred_args=anomaly_det_args[2]
 
-       
+        anomaly_counts = self.count_anomalies_per_task(test_tasks, label_tasks)
+        print(anomaly_counts)
+
+        test_loss_logs = {"support": [], "query": []}
+        write_logs = self.generate_csv_log_writer()
+        
         for task_idx, (task_id, (support_loader, query_loader)) in enumerate(test_tasks.items()):
             # We can adapt the model again, but for meta-testing 
             # we often do real gradient steps on 'fmodel' (no second-order needed).
+            is_new_task = True    
+            if task_id in [13, 19, 23, 27, 29, 36, 66, 71, 82, 87]: #29
+                temp_loader = support_loader
+                support_loader = query_loader
+                query_loader = temp_loader
+                label_index = 0
+            else:
+                label_index = 1
             with higher.innerloop_ctx(
                 self.model,
                 torch.optim.SGD(self.model.parameters(), lr=self.inner_lr),
@@ -173,9 +249,11 @@ class Trainer:
                 # Adapt with support set
                 for _ in range(adaptation_steps):
                     support_loss_accum = 0.0
+                    support_loss_accum = support_pred_loss_accum = support_recon_loss_accum = 0.0
                     for (x_sup, y_sup) in support_loader:
-                        x_sup, y_sup = x_sup.to(self.device), y_sup.to(self.device)
-                        recons_sup, preds_sup = fmodel(x_sup)
+                        x_sup, y_sup = x_sup[:, :, :-1].to(self.device), y_sup[:, :, :-1].to(self.device)
+                        recons_sup, preds_sup = fmodel(x_sup, is_new_task)
+                        is_new_task = False
                         ############# Dimension adjustment #####
                         if self.target_dim[0] is not None:
                             x_sup = x_sup[:, :, self.target_dim].squeeze(-1)
@@ -186,10 +264,31 @@ class Trainer:
                         if y_sup.ndim == 3:
                             y_sup = y_sup.squeeze(1)
                         ############# 
-                        support_loss_accum += self.compute_loss(x_sup, y_sup, recons_sup, preds_sup)
+                    pred_loss, recon_loss, support_loss_test = self.compute_loss(x_sup, y_sup, recons_sup, preds_sup)
+                    support_loss_accum += support_loss_test
                     support_loss_accum /= len(support_loader)
+                    support_pred_loss_accum += pred_loss
+                    support_recon_loss_accum += recon_loss
+                    support_pred_loss_accum/= len(support_loader)
+                    support_recon_loss_accum/= len(support_loader)
                     diffopt.step(support_loss_accum)
                 
+                # Logging
+                    
+                test_loss_logs["support"].append({
+                    "task_id": task_id,
+                    "pred_loss": support_pred_loss_accum.item(),
+                    "recon_loss": support_recon_loss_accum.item(),
+                    "total_loss": support_loss_accum.item()
+                })
+
+                test_loss_logs["query"].append({
+                        "task_id": task_id,
+                        "pred_loss": 0,
+                        "recon_loss": 0,
+                        "total_loss": 0
+                })
+
                 # Now fmodel is adapted. We can do anomaly detection or just measure performance:
                 # Example: pass fmodel to your AnomalyDetector
                 with torch.no_grad():
@@ -212,55 +311,59 @@ class Trainer:
                     # query_scores = anomaly_detector.get_score(query_data)
 
                     # Extract the correct portion of y_test
-                    task_y_test = label_tasks[task_id][1].dataset.data
+                    
+                    task_y_test = label_tasks[task_id][label_index].dataset.data
 
                     #remove encounter column in the label data
-                    support_data = support_loader.dataset.data
-                    query_data = query_loader.dataset.data
+                    support_data = support_loader.dataset.data[:,:-1] 
+                    query_data = query_loader.dataset.data[:,:-1]
                     task_y_test = task_y_test[:,-2]
                     label_data = task_y_test[window_size:]
-                    all_results = anomaly_detector.predict_anomalies(support_data, query_data, label_data, task_idx=task_id)
+                     # Get anomalies for this task
+                 
+                    task_results = anomaly_detector.predict_anomalies(support_data, query_data, label_data, task_idx=task_id)
+                    all_results.append(task_results)
 
+        write_logs(test_loss_logs["support"], test_loss_logs["query"])
 
-                    # # Evaluate
-                    # epsilon_results = epsilon_eval(support_scores['A_Score_Global'],
-                    #                                 query_scores['A_Score_Global'],
-                    #                                 task_y_test)
-                    # pot_results = pot_eval(support_scores['A_Score_Global'],
-                    #                         query_scores['A_Score_Global'],
-                    #                         task_y_test,
-                    #                         q=..., level=...)
-                    # bf_results = bf_search(query_scores['A_Score_Global'], task_y_test)
-
-                    # print(f"Task {task_idx + 1}: Epsilon F1={epsilon_results['f1']:.4f}, "
-                    #         f"POT F1={pot_results['f1']:.4f}, BF F1={bf_results['f1']:.4f}")
-
-                    # epsilon_results = epsilon_eval(support_scores['A_Score_Global'], 
-                    #                     query_scores['A_Score_Global'], 
-                    #                     task_y_test, reg_level=anomaly_det_args[2]['reg_level']))
-                    # pot_results = pot_eval(support_scores['A_Score_Global'], 
-                    #                     query_scores['A_Score_Global'], 
-                    #                     task_y_test, 
-                    #                     q=anomaly_det_args[2]['q'], 
-                    #                     level=anomaly_det_args[2]['level'])
-                    # bf_results = bf_search(query_scores['A_Score_Global'], task_y_test)
-
-                    # # Log results
-                    # print(f"Task {task_idx + 1}:")
-                    # print(f"  Epsilon Method: F1={epsilon_results['f1']:.4f}, Precision={epsilon_results['precision']:.4f}, Recall={epsilon_results['recall']:.4f}")
-                    # print(f"  POT Method: F1={pot_results['f1']:.4f}, Precision={pot_results['precision']:.4f}, Recall={pot_results['recall']:.4f}")
-                    # print(f"  Best-F1 Search: F1={bf_results['f1']:.4f}, Precision={bf_results['precision']:.4f}, Recall={bf_results['recall']:.4f}")
-
-
-                    # all_results.append({"epsilon": epsilon_results, "pot": pot_results, "bf": bf_results})
-                   
-
+        time_str = datetime.now().strftime("%d%m%Y_%H%M%S") 
+        meta_eval_dir = 'meta_evaluation_results'
+        filename = f"{meta_eval_dir}/results_{time_str}.json"          
+        with open(filename, "w") as f:
+            json.dump(all_results, f, indent=4)
         # Aggregate final results
         return self.aggregate_results(all_results)
 
     def aggregate_results(self, all_results):
         # Example aggregator
         return {}
+    
+    def count_anomalies_per_task(self, test_tasks, label_tasks):
+        """
+        Count the number of anomalies in support and query sets for each task.
+
+        :param test_tasks: dict {task_id: (support_loader, query_loader), ...}
+        :param label_tasks: dict {task_id: (support_loader, query_loader), ...} with anomaly labels
+        :return: dict of anomaly counts per task {task_id: {'support': count, 'query': count}}
+        """
+        anomaly_counts = {}
+
+        for task_id in test_tasks:
+            support_anomalies = query_anomalies = 0
+            support_labels = label_tasks[task_id][0].dataset.data[:, -2]  # assuming labels are in the second-to-last column
+            query_labels = label_tasks[task_id][1].dataset.data[:, -2]
+
+            support_anomalies = (support_labels == 1).sum().item()
+            query_anomalies = (query_labels == 1).sum().item()
+
+            anomaly_counts[task_id] = {
+                "support_anomalies": support_anomalies,
+                "query_anomalies": query_anomalies
+            }
+
+        return anomaly_counts
+
+
     #/'''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''\
     def train(self, num_epochs):
         """""
@@ -285,12 +388,14 @@ class Trainer:
             prediction_train_loss = []
             reconstruction_train_loss = []
             combined_train_loss = []
-            for batch_idx, (inputs, targets) in enumerate(tqdm(self.train_loader, desc="Training")):
+            for batch_idx, (inputs, targets, is_new) in enumerate(tqdm(self.train_loader, desc="Training")):
 
                 assert not torch.isnan(inputs).any(), f"NaNs detected in data at epoch {epoch}, batch {batch_idx}"
                 assert not torch.isnan(targets).any(), f"NaNs detected in labels at epoch {epoch}, batch {batch_idx}"
         
                 inputs, targets = inputs.to(self.device), targets.to(self.device)
+                is_new   = is_new.to(self.device)        # shape (B,)
+
                 inputs_org = inputs
                 self.optimizer.zero_grad()
                 # Alternative #1- GRU as the forecasting method and reconstruction output is compared to GAT's output
@@ -299,7 +404,7 @@ class Trainer:
 
                 # Alternative #2- Reconstruction of GRU output and a new forecasting model
 
-                recons, preds = self.model(inputs)
+                recons, preds = self.model(inputs, is_new=is_new)
                 if self.target_dim[0] is not None:
                     inputs = inputs[:, :, self.target_dim].squeeze(-1)
                     targets = targets[:, :, self.target_dim].squeeze(-1)
@@ -377,11 +482,11 @@ class Trainer:
             loader = self.val_loader
          
         with torch.no_grad():
-            for batch_idx, (inputs, targets) in enumerate(tqdm(loader, desc="Validation")):
-                inputs, targets = inputs.to(self.device), targets.to(self.device)
+            for batch_idx, (inputs, targets, is_new) in enumerate(tqdm(loader, desc="Validation")):
+                inputs, targets, is_new = inputs.to(self.device), targets.to(self.device),is_new.to(self.device)
                 # targets = targets.squeeze(1)
                 # Forward pass
-                recons, preds = self.model(inputs)
+                recons, preds = self.model(inputs, is_new)
                 if self.target_dim[0] is not None:
                     inputs = inputs[:, :, self.target_dim].squeeze(-1)
                     targets = targets[:, :, self.target_dim].squeeze(-1)

@@ -3,7 +3,7 @@ from datetime import datetime
 import torch
 import torch.nn as nn
 from utils import *
-from models import GRUAT
+from models import MAL_GATE
 from arguments import get_parser
 from trainer import Trainer
 from anomaly_detection import AnomalyDetector
@@ -39,11 +39,11 @@ def train_and_evaluate_model(X_fold, y_fold, hyperparams):
         )
 
     
-        # model = GRUAT(n_features, out_dim, window_size, hyperparams['memory_dim'], hyperparams['num_memory_slots'], args.node_embed_dim, args.num_heads,
+        # model = MAL_GATE(n_features, out_dim, window_size, hyperparams['memory_dim'], hyperparams['num_memory_slots'], args.node_embed_dim, args.num_heads,
         #                 hyperparams['gru_num_layers'], hyperparams['gru_hid_dim'], args.tcn_embed_dim, args.tcn_kernel_size, hyperparams['fc_n_layers'], 
         #                 hyperparams['gru_hid_dim'], args.vae_latent_dim, args.recon_hid_dim, args.recon_n_layers, hyperparams['dropout'], args.alpha)
         
-        model = GRUAT(n_features, out_dim, window_size, args.memory_dim, args.num_memory_slots, window_size, args.num_heads,
+        model = MAL_GATE(n_features, out_dim, window_size, args.memory_dim, args.num_memory_slots, window_size, args.num_heads,
                         args.gru_num_layers, args.gru_hidden_dim, args.tcn_embed_dim, args.tcn_kernel_size, args.fc_n_layers, 
                         hyperparams['fc_hid_dim'], args.vae_latent_dim, args.recon_hid_dim, args.recon_n_layers, hyperparams['dropout'], args.alpha)
  
@@ -102,7 +102,7 @@ param_distributions = {
     'dropout': [0.3, 0.4]
     }
 
-class GRUATModel(BaseEstimator):
+class MAL_GATEModel(BaseEstimator):
     def __init__(self, batch_size, window_size, n_epochs, init_lr, dropout, memory_dim, num_memory_slots, gru_num_layers, gru_hid_dim, fc_n_layers, fc_hid_dim, recon_n_layers, recon_hid_dim):
         self.batch_size = batch_size
         self.window_size = window_size
@@ -232,7 +232,7 @@ if __name__ == "__main__":
         out_dim = len(target_dims)
 
         # Now define the search object
-    mtad_gat_model = GRUATModel(batch_size=None, window_size=None, n_epochs=None, init_lr=None,
+    mtad_gat_model = MAL_GATEModel(batch_size=None, window_size=None, n_epochs=None, init_lr=None,
     dropout=None, memory_dim = None, num_memory_slots=None, gru_num_layers=None, gru_hid_dim= None, 
     fc_n_layers=None, fc_hid_dim= None, recon_n_layers=None, recon_hid_dim=None)
 

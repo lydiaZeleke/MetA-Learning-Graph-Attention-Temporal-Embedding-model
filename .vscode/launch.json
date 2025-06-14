@@ -9,7 +9,11 @@
             "type": "python",
             "request": "launch",
             "program": "${workspaceFolder}/main.py",
-            "args": ["--dataset", "CUSTOM", "--normalize", "False", "--meta_training", "True"],
+            // "args": ["--dataset", "CUSTOM", "--normalize", "False"],
+            "args": ["--dataset", "MSL", "--normalize", "False", "--meta_training", "False"],
+            "env": {
+                "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"
+              },
             "console": "integratedTerminal"
         }
     ]

@@ -35,7 +35,7 @@ def get_parser():
 
     # TCN parameters
     parser.add_argument("--tcn_embed_dim", type=int, default = 32)
-    parser.add_argument("--tcn_kernel_size", type=int, default = 7)
+    parser.add_argument("--tcn_kernel_size", type=int, default = 3)
 
     # GRU layers
     parser.add_argument("--gru_num_layers", type=int, default=3) #3
@@ -48,8 +48,8 @@ def get_parser():
     # parser.add_argument("--time_gat_embed_dim", type=int, default=None)
     
        ## ------External Memory and Fusion params ---------
-    parser.add_argument("--memory_dim", type=int, default = 32) #32
-    parser.add_argument("--num_memory_slots", type=int, default= 8) #16
+    parser.add_argument("--memory_dim", type=int, default = 32) #8
+    parser.add_argument("--num_memory_slots", type=int, default= 8) #8 #16
     parser.add_argument("--node_embed_dim", type=int, default = 50) # node embedding made to match the window size for our current architectural setup
     
     # # Forecasting Model
@@ -65,7 +65,7 @@ def get_parser():
     # # --- Train params ---
     parser.add_argument("--epochs", type=int, default= 10) #10
     parser.add_argument("--val_split", type=float, default=0.1)
-    parser.add_argument("--bs", type=int, default=64) #256
+    parser.add_argument("--bs", type=int, default=64) #64 latest working #256
     parser.add_argument("--init_lr", type=float, default=1e-5) #1e-4
     parser.add_argument("--shuffle_dataset", type=str2bool, default=False)
     parser.add_argument("--dropout", type=float, default=0.3) #0.3
@@ -83,11 +83,11 @@ def get_parser():
     parser.add_argument("--dynamic_pot", type=str2bool, default=False)
 
     # # --- Meta-Learning params ---
-    parser.add_argument("--inner_lr", type=int, default=0.001)
-    parser.add_argument("--meta_lr", type=int, default=0.001)
+    parser.add_argument("--inner_lr", type=float, default=0.001)
+    parser.add_argument("--meta_lr", type=float, default=0.0001)
 
 
-    parser.add_argument("--test_adaptation_steps", type=int, default=2)
-    parser.add_argument("--train_adaptation_steps", type=int, default=4)
+    parser.add_argument("--test_adaptation_steps", type=int, default=1)
+    parser.add_argument("--train_adaptation_steps", type=int, default=2)
 
     return parser

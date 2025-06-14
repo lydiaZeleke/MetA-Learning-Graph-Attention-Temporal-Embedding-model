@@ -829,8 +829,8 @@
 #         return context, weights
 # ################
     
-# ######### GRUAT Implementation ##########
-# class GRUAT(nn.Module):
+# ######### MAL_GATE Implementation ##########
+# class MAL_GATE(nn.Module):
 #     def __init__(self, 
 #     num_features,
 #     output_size, 
@@ -853,7 +853,7 @@
 #     ):
        
         
-#         super(GRUAT, self).__init__()
+#         super(MAL_GATE, self).__init__()
 #         self.num_features = num_features
 #         self.hyperparams = {
 #             "window_size": window_size,

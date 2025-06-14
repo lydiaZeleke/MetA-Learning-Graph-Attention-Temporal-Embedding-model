@@ -41,6 +41,9 @@ class TSDataset(Dataset):
 
         self.samples_num = data.shape[0]
         if isinstance(data, pd.DataFrame):
+            # if typeData == 'CUSTOM' and category.find('label') == -1 :
+            #         drop_cols = ['psi_deg', 'theta_deg', 'phi_deg']
+            #         data = data.drop(columns=drop_cols)
             x_data = data.values
         else:
             x_data = data

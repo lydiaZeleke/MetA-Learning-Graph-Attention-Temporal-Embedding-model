@@ -37,6 +37,9 @@ class AnomalyDetector:
         self.summary_file_name = summary_file_name
         self.meta_mode = meta_learning_mode
 
+        if self.meta_mode:
+            self.n_features -= 1
+
     def get_score(self, values):
         """Calculate anomaly scores using the hybrid model (GRU + TCN + GAT).
         :param values: 2D array of multivariate time-series data, shape (N, num_features)
@@ -106,7 +109,7 @@ class AnomalyDetector:
 
         return pd.DataFrame(df_dict)
 
-    def predict_anomalies(self, train, test, true_anomalies, load_scores=False, save_output=True,
+    def predict_anomalies(self, train, test, true_anomalies, load_scores=False, save_output=True, 
                           scale_scores=False, task_idx= None):
         """ Predicts anomalies
 
@@ -150,6 +153,7 @@ class AnomalyDetector:
 
         # Find threshold and predict anomalies at feature-level (for plotting and diagnosis purposes)
         out_dim = self.n_features if self.target_dims is None else len(self.target_dims)
+      
         all_preds = np.zeros((len(test_pred_df), out_dim))
         for i in range(out_dim):
             train_feature_anom_scores = train_pred_df[f"A_Score_{i}"].values
@@ -191,9 +195,10 @@ class AnomalyDetector:
 
         if self.meta_mode:
              print(f"Task {task_idx + 1}:")
-        print(f"Results using epsilon method:\n {e_eval}")
-        print(f"Results using peak-over-threshold method:\n {p_eval}")
-        print(f"Results using best f1 score search:\n {bf_eval}")
+        # print(f"Results using epsilon method:\n {e_eval}")
+        # print(f"Results using peak-over-threshold method:\n {p_eval}")
+        # print(f"Results using best f1 score search:\n {bf_eval}")
+        
 
         for k, v in e_eval.items():
             if not type(e_eval[k]) == list:
@@ -205,7 +210,7 @@ class AnomalyDetector:
             bf_eval[k] = float(v)
 
         # Save
-        summary = {"epsilon_result": e_eval, "pot_result": p_eval, "bf_result": bf_eval}
+        summary = {"epsilon_result": e_eval, "pot_result": p_eval, "bf_result": bf_eval, "auc_roc": auc_roc, "auc_pr": auc_pr}
 
         if self.meta_mode:
             return summary

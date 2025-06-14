@@ -6,10 +6,12 @@ from os import listdir, makedirs, path
 import torch
 import torch.nn as nn
 from utils import *
-from models import GRUAT
+from models import MAL_GATE
 from arguments import get_parser
 from trainer import Trainer
 from anomaly_detection import AnomalyDetector
+from sklearn.preprocessing import StandardScaler
+
 
 if __name__ == "__main__":
 
@@ -19,6 +21,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     meta_mode = args.meta_training
+    skip_meta_train = False #args.skip_training
     dataset = args.dataset
     window_size = args.lookback
     group_index = args.group[0]
@@ -65,8 +68,25 @@ if __name__ == "__main__":
     if torch.isnan(x_test).any():
             print('NaN values detected in input')
     if dataset == 'CUSTOM':
-        x_train = x_train.float()
-        x_test = x_test.float()
+        if meta_mode:
+            x_train = x_train.float()
+            x_test = x_test.float()
+        else:
+            x_train = x_train[:,:-1].float() # remove encounter col
+            x_test = x_test[:,:-1].float() # remove encounter col
+         # Convert to NumPy for scaling
+        # last_train_col = x_train[:, -1].unsqueeze(1).numpy()
+        # last_test_col = x_test[:, -1].unsqueeze(1).numpy()
+
+        # # Apply StandardScaler
+        # scaler = StandardScaler()
+        # last_train_col_scaled = scaler.fit_transform(last_train_col)
+        # last_test_col_scaled = scaler.transform(last_test_col)
+
+        # # Replace the last column with the scaled version
+        # x_train = torch.cat([x_train[:, :-1], torch.tensor(last_train_col_scaled)], dim=1).float()
+        # x_test = torch.cat([x_test[:, :-1], torch.tensor(last_test_col_scaled)], dim=1).float()
+
  
     n_features = x_train.shape[1]
     output_size = n_features
@@ -86,21 +106,25 @@ if __name__ == "__main__":
     if meta_mode:
         train_loaders, test_loaders, label_loaders = prepare_dataloaders(x_train, x_test, y_test, window_size, target_dims, batch_size)
         val_loaders = None
+        n_features -= 1
+        out_dim -= 1
+
 
      #''''''''''' BASE MODEL IMPLEMENTATION '''''''''''''#
     else:
-        train_dataset = SlidingWindowDataset2(x_train, window_size, target_dims) if dataset.upper() == 'CUSTOM' else SlidingWindowDataset(x_train, window_size, target_dims)
-        test_dataset = SlidingWindowDataset2(x_test, window_size, target_dims) if dataset.upper() == 'CUSTOM' else SlidingWindowDataset(x_test, window_size, target_dims)
+        train_dataset = SlidingWindowDataset3(x_train, window_size, target_dims) if dataset.upper() == 'CUSTOM' else SlidingWindowDataset(x_train, window_size, target_dims)
+        test_dataset = SlidingWindowDataset3(x_test, window_size, target_dims) if dataset.upper() == 'CUSTOM' else SlidingWindowDataset(x_test, window_size, target_dims)
 
-        train_loaders, val_loaders, test_loaders = generate_data_loaders(
+        train_loaders, val_loaders, test_loaders = generate_data_loaders2(
             train_dataset, batch_size, val_split, shuffle_dataset, test_dataset=test_dataset
         )
  
-    # model = GRUAT(n_features, args.gru_hidden_dim, args.gru_num_layers, output_size, window_size, args.dropout, args.alpha, args.gru_final_hid_dim)
+    # model = MAL_GATE(n_features, args.gru_hidden_dim, args.gru_num_layers, output_size, window_size, args.dropout, args.alpha, args.gru_final_hid_dim)
     
-    model = GRUAT(n_features, out_dim, window_size, args.memory_dim, args.num_memory_slots, args.node_embed_dim, 
+    model = MAL_GATE(n_features, out_dim, window_size, args.memory_dim, args.num_memory_slots, args.node_embed_dim, 
                     args.gru_num_layers, args.gru_hidden_dim, args.tcn_embed_dim, args.tcn_kernel_size, args.fc_n_layers, 
                     args.fc_hid_dim, args.vae_latent_dim, args.recon_hid_dim, args.recon_n_layers, args.dropout, args.alpha)
+    
     
     # Define loss and optimizer
     criterion = nn.MSELoss()  # For regression
@@ -123,7 +147,7 @@ if __name__ == "__main__":
 
 
    
-    if meta_mode:  #''''''''''' META-LEARNING IMPLEMENTATION - TASK-SPECIFIC LEARNING AND META-TRAINING'''''''''''''#
+    if meta_mode and not skip_meta_train:  #''''''''''' META-LEARNING IMPLEMENTATION - TASK-SPECIFIC LEARNING AND META-TRAINING'''''''''''''#
         trainer.meta_train(train_loaders, n_epochs, train_adaptation_steps)
     else:
          trainer.train(n_epochs)

@@ -208,15 +208,37 @@ class SPOT:
             print("Number of peaks : %s" % self.Nt)
             print("Grimshaw maximum log-likelihood estimation ... ", end="")
 
-        g, s, l = self._grimshaw()
-        self.extreme_quantile = self._quantile(g, s)
+        # Lydia- replaced the following commented out lines with the logic following them # -- Gracefully fallback if Grimshaw fails --
+        # g, s, l = self._grimshaw()
+        # self.extreme_quantile = self._quantile(g, s)
+            
+        # -- Gracefully fallback if Grimshaw fails --
+        try:
+            if self.peaks.size < 3:
+                raise ValueError("Not enough peaks for Grimshaw")
 
-        if verbose:
-            print("[done]")
-            print("\t" + chr(0x03B3) + " = " + str(g))
-            print("\t" + chr(0x03C3) + " = " + str(s))
-            print("\tL = " + str(l))
-            print("Extreme quantile (probability = %s): %s" % (self.proba, self.extreme_quantile))
+            g, s, l = self._grimshaw()
+            self.extreme_quantile = self._quantile(g, s)
+
+            if verbose:
+                print("[done]")
+                print("\t" + chr(0x03B3) + " = " + str(g))
+                print("\t" + chr(0x03C3) + " = " + str(s))
+                print("\tL = " + str(l))
+                print("Extreme quantile (probability = %s): %s" % (self.proba, self.extreme_quantile))
+
+        except Exception as e:
+            if verbose:
+                print(f"[Grimshaw failed: {e}] Falling back to percentile-based threshold.")
+            self.extreme_quantile = np.percentile(self.init_data, 100 * level)
+        #### END OF REPLACEMENT ###
+            
+        # if verbose:
+        #     print("[done]")
+        #     print("\t" + chr(0x03B3) + " = " + str(g))
+        #     print("\t" + chr(0x03C3) + " = " + str(s))
+        #     print("\tL = " + str(l))
+        #     print("Extreme quantile (probability = %s): %s" % (self.proba, self.extreme_quantile))
 
         return
 
@@ -244,7 +266,12 @@ class SPOT:
         """
         if method == "regular":
             step = (bounds[1] - bounds[0]) / (npoints + 1)
+            # Replace with safe version
+            # if bounds[1] <= bounds[0] or np.isnan(bounds[0]) or np.isnan(bounds[1]):
+            # print(f"[WARNING] Invalid bounds for Grimshaw root finding: {bounds}")
+            # return None
             X0 = np.arange(bounds[0] + step, bounds[1], step)
+            # X0 = np.arange(bounds[0] + step, bounds[1], step)
         elif method == "random":
             X0 = np.random.uniform(bounds[0], bounds[1], npoints)
 

@@ -1,0 +1,650 @@
+[
+    {
+        "epsilon_result": {
+            "f1": 0.9316719262640054,
+            "precision": 0.8720929218496603,
+            "recall": 0.9999998666666844,
+            "TP": 75.0,
+            "TN": 164.0,
+            "FP": 11.0,
+            "FN": 0.0,
+            "threshold": 2.4479486644268036,
+            "latency": 1.9998000199980002,
+            "reg_level": 1.0
+        },
+        "pot_result": {
+            "f1": 0.0,
+            "precision": 0.0,
+            "recall": 0.0,
+            "TP": 0.0,
+            "TN": 174.0,
+            "FP": 1.0,
+            "FN": 75.0,
+            "threshold": 3.1018295373175535,
+            "latency": 0.0
+        },
+        "bf_result": {
+            "f1": 0.8108059021469708,
+            "precision": 0.6818181198347164,
+            "recall": 0.9999998666666844,
+            "TP": 75.0,
+            "TN": 140.0,
+            "FP": 35.0,
+            "FN": 0.0,
+            "threshold": 2.000000000000002,
+            "latency": 0.0
+        }
+    },
+    {
+        "epsilon_result": {
+            "f1": 0.0,
+            "precision": 0.0,
+            "recall": 0.0,
+            "TP": 0.0,
+            "TN": 250.0,
+            "FP": 0.0,
+            "FN": 0.0,
+            "threshold": 3.0232599824666977,
+            "latency": 0.0,
+            "reg_level": 1.0
+        },
+        "pot_result": {
+            "f1": 0.0,
+            "precision": 0.0,
+            "recall": 0.0,
+            "TP": 0.0,
+            "TN": 250.0,
+            "FP": 0.0,
+            "FN": 0.0,
+            "threshold": 3.3046952099272966,
+            "latency": 0.0
+        },
+        "bf_result": {
+            "f1": 0.0,
+            "precision": 0.0,
+            "recall": 0.0,
+            "TP": 0.0,
+            "TN": 0.0,
+            "FP": 250.0,
+            "FN": 0.0,
+            "threshold": 0.029900000000000003,
+            "latency": 0.0
+        }
+    },
+    {
+        "epsilon_result": {
+            "f1": 0.0,
+            "precision": 0.0,
+            "recall": 0.0,
+            "TP": 0.0,
+            "TN": 250.0,
+            "FP": 0.0,
+            "FN": 0.0,
+            "threshold": 4.51114696264267,
+            "latency": 0.0,
+            "reg_level": 1.0
+        },
+        "pot_result": {
+            "f1": 0.0,
+            "precision": 0.0,
+            "recall": 0.0,
+            "TP": 0.0,
+            "TN": 250.0,
+            "FP": 0.0,
+            "FN": 0.0,
+            "threshold": 7.134175777435303,
+            "latency": 0.0
+        },
+        "bf_result": {
+            "f1": 0.0,
+            "precision": 0.0,
+            "recall": 0.0,
+            "TP": 0.0,
+            "TN": 0.0,
+            "FP": 250.0,
+            "FN": 0.0,
+            "threshold": 0.029900000000000003,
+            "latency": 0.0
+        }
+    },
+    {
+        "epsilon_result": {
+            "f1": 0.0,
+            "precision": 0.0,
+            "recall": 0.0,
+            "TP": 0.0,
+            "TN": 151.0,
+            "FP": 0.0,
+            "FN": 0.0,
+            "threshold": 4.456271693110466,
+            "latency": 0.0,
+            "reg_level": 1.0
+        },
+        "pot_result": {
+            "f1": 0.0,
+            "precision": 0.0,
+            "recall": 0.0,
+            "TP": 0.0,
+            "TN": 151.0,
+            "FP": 0.0,
+            "FN": 0.0,
+            "threshold": 6.603936195373535,
+            "latency": 0.0
+        },
+        "bf_result": {
+            "f1": 0.0,
+            "precision": 0.0,
+            "recall": 0.0,
+            "TP": 0.0,
+            "TN": 0.0,
+            "FP": 151.0,
+            "FN": 0.0,
+            "threshold": 0.029900000000000003,
+            "latency": 0.0
+        }
+    },
+    {
+        "epsilon_result": {
+            "f1": 0.0,
+            "precision": 0.0,
+            "recall": 0.0,
+            "TP": 0.0,
+            "TN": 112.0,
+            "FP": 0.0,
+            "FN": 39.0,
+            "threshold": 6.185214817523956,
+            "latency": 0.0,
+            "reg_level": 1.0
+        },
+        "pot_result": {
+            "f1": 0.0,
+            "precision": 0.0,
+            "recall": 0.0,
+            "TP": 0.0,
+            "TN": 112.0,
+            "FP": 0.0,
+            "FN": 39.0,
+            "threshold": 6.50547038502684,
+            "latency": 0.0
+        },
+        "bf_result": {
+            "f1": 0.4105230099978669,
+            "precision": 0.2582781285908524,
+            "recall": 0.9999997435898093,
+            "TP": 39.0,
+            "TN": 0.0,
+            "FP": 112.0,
+            "FN": 0.0,
+            "threshold": 0.029900000000000003,
+            "latency": 0.0
+        }
+    },
+    {
+        "epsilon_result": {
+            "f1": 0.9999945238347504,
+            "precision": 0.9999995238097505,
+            "recall": 0.9999995238097505,
+            "TP": 21.0,
+            "TN": 130.0,
+            "FP": 0.0,
+            "FN": 0.0,
+            "threshold": 6.190979897975922,
+            "latency": 0.0,
+            "reg_level": 1.0
+        },
+        "pot_result": {
+            "f1": 0.0,
+            "precision": 0.0,
+            "recall": 0.0,
+            "TP": 0.0,
+            "TN": 130.0,
+            "FP": 0.0,
+            "FN": 21.0,
+            "threshold": 7.870663803357669,
+            "latency": 0.0
+        },
+        "bf_result": {
+            "f1": 0.24418387440972178,
+            "precision": 0.13907283847199745,
+            "recall": 0.9999995238097505,
+            "TP": 21.0,
+            "TN": 0.0,
+            "FP": 130.0,
+            "FN": 0.0,
+            "threshold": 0.029900000000000003,
+            "latency": 0.0
+        }
+    },
+    {
+        "epsilon_result": {
+            "f1": 0.0,
+            "precision": 0.0,
+            "recall": 0.0,
+            "TP": 0.0,
+            "TN": 129.0,
+            "FP": 11.0,
+            "FN": 11.0,
+            "threshold": 7.213909402489662,
+            "latency": 0.0,
+            "reg_level": 1.0
+        },
+        "pot_result": {
+            "f1": 0.0,
+            "precision": 0.0,
+            "recall": 0.0,
+            "TP": 0.0,
+            "TN": 140.0,
+            "FP": 0.0,
+            "FN": 11.0,
+            "threshold": 7.884013763129762,
+            "latency": 0.0
+        },
+        "bf_result": {
+            "f1": 0.13580118656780588,
+            "precision": 0.0728476772948558,
+            "recall": 0.9999990909099173,
+            "TP": 11.0,
+            "TN": 0.0,
+            "FP": 140.0,
+            "FN": 0.0,
+            "threshold": 0.029900000000000003,
+            "latency": 0.0
+        }
+    },
+    {
+        "epsilon_result": {
+            "f1": 0.9900938143572118,
+            "precision": 0.9803919646290264,
+            "recall": 0.99999980000004,
+            "TP": 50.0,
+            "TN": 199.0,
+            "FP": 1.0,
+            "FN": 0.0,
+            "threshold": 7.24097465723753,
+            "latency": 17.998200179982003,
+            "reg_level": 1.0
+        },
+        "pot_result": {
+            "f1": 0.9999948000250399,
+            "precision": 0.99999980000004,
+            "recall": 0.99999980000004,
+            "TP": 50.0,
+            "TN": 200.0,
+            "FP": 0.0,
+            "FN": 0.0,
+            "threshold": 7.627304181476029,
+            "latency": 21.997800219978004
+        },
+        "bf_result": {
+            "f1": 0.33333053335618645,
+            "precision": 0.19999999200000032,
+            "recall": 0.99999980000004,
+            "TP": 50.0,
+            "TN": 0.0,
+            "FP": 200.0,
+            "FN": 0.0,
+            "threshold": 0.029900000000000003,
+            "latency": 0.0
+        }
+    },
+    {
+        "epsilon_result": {
+            "f1": 0.0,
+            "precision": 0.0,
+            "recall": 0.0,
+            "TP": 0.0,
+            "TN": 449.0,
+            "FP": 1.0,
+            "FN": 0.0,
+            "threshold": 9.570072695612907,
+            "latency": 0.0,
+            "reg_level": 1.0
+        },
+        "pot_result": {
+            "f1": 0.0,
+            "precision": 0.0,
+            "recall": 0.0,
+            "TP": 0.0,
+            "TN": 450.0,
+            "FP": 0.0,
+            "FN": 0.0,
+            "threshold": 10.625616073608398,
+            "latency": 0.0
+        },
+        "bf_result": {
+            "f1": 0.0,
+            "precision": 0.0,
+            "recall": 0.0,
+            "TP": 0.0,
+            "TN": 0.0,
+            "FP": 450.0,
+            "FN": 0.0,
+            "threshold": 0.029900000000000003,
+            "latency": 0.0
+        }
+    },
+    {
+        "epsilon_result": {
+            "f1": 0.0,
+            "precision": 0.0,
+            "recall": 0.0,
+            "TP": 0.0,
+            "TN": 450.0,
+            "FP": 0.0,
+            "FN": 0.0,
+            "threshold": 11.480939865112305,
+            "latency": 0.0,
+            "reg_level": 1.0
+        },
+        "pot_result": {
+            "f1": 0.0,
+            "precision": 0.0,
+            "recall": 0.0,
+            "TP": 0.0,
+            "TN": 450.0,
+            "FP": 0.0,
+            "FN": 0.0,
+            "threshold": 12.916733741760254,
+            "latency": 0.0
+        },
+        "bf_result": {
+            "f1": 0.0,
+            "precision": 0.0,
+            "recall": 0.0,
+            "TP": 0.0,
+            "TN": 0.0,
+            "FP": 450.0,
+            "FN": 0.0,
+            "threshold": 0.029900000000000003,
+            "latency": 0.0
+        }
+    },
+    {
+        "epsilon_result": {
+            "f1": 0.0,
+            "precision": 0.0,
+            "recall": 0.0,
+            "TP": 0.0,
+            "TN": 351.0,
+            "FP": 0.0,
+            "FN": 0.0,
+            "threshold": 9.928237795829773,
+            "latency": 0.0,
+            "reg_level": 1.0
+        },
+        "pot_result": {
+            "f1": 0.0,
+            "precision": 0.0,
+            "recall": 0.0,
+            "TP": 0.0,
+            "TN": 351.0,
+            "FP": 0.0,
+            "FN": 0.0,
+            "threshold": 11.472022237800902,
+            "latency": 0.0
+        },
+        "bf_result": {
+            "f1": 0.0,
+            "precision": 0.0,
+            "recall": 0.0,
+            "TP": 0.0,
+            "TN": 0.0,
+            "FP": 351.0,
+            "FN": 0.0,
+            "threshold": 0.029900000000000003,
+            "latency": 0.0
+        }
+    },
+    {
+        "epsilon_result": {
+            "f1": 0.9803869665768435,
+            "precision": 0.9615382766272544,
+            "recall": 0.99999980000004,
+            "TP": 50.0,
+            "TN": 398.0,
+            "FP": 2.0,
+            "FN": 0.0,
+            "threshold": 9.17808723449707,
+            "latency": 0.0,
+            "reg_level": 1.0
+        },
+        "pot_result": {
+            "f1": 0.8928520408436951,
+            "precision": 0.8064514828304059,
+            "recall": 0.99999980000004,
+            "TP": 50.0,
+            "TN": 388.0,
+            "FP": 12.0,
+            "FN": 0.0,
+            "threshold": 9.16593748681335,
+            "latency": 0.0
+        },
+        "bf_result": {
+            "f1": 0.19999819201594415,
+            "precision": 0.11111110864197538,
+            "recall": 0.99999980000004,
+            "TP": 50.0,
+            "TN": 0.0,
+            "FP": 400.0,
+            "FN": 0.0,
+            "threshold": 0.029900000000000003,
+            "latency": 0.0
+        }
+    },
+    {
+        "epsilon_result": {
+            "f1": 0.9999948000250399,
+            "precision": 0.99999980000004,
+            "recall": 0.99999980000004,
+            "TP": 50.0,
+            "TN": 400.0,
+            "FP": 0.0,
+            "FN": 0.0,
+            "threshold": 12.87393407523632,
+            "latency": 0.0,
+            "reg_level": 1.0
+        },
+        "pot_result": {
+            "f1": 0.9999948000250399,
+            "precision": 0.99999980000004,
+            "recall": 0.99999980000004,
+            "TP": 50.0,
+            "TN": 400.0,
+            "FP": 0.0,
+            "FN": 0.0,
+            "threshold": 13.59125613870887,
+            "latency": 0.0
+        },
+        "bf_result": {
+            "f1": 0.19999819201594415,
+            "precision": 0.11111110864197538,
+            "recall": 0.99999980000004,
+            "TP": 50.0,
+            "TN": 0.0,
+            "FP": 400.0,
+            "FN": 0.0,
+            "threshold": 0.029900000000000003,
+            "latency": 0.0
+        }
+    },
+    {
+        "epsilon_result": {
+            "f1": 0.0,
+            "precision": 0.0,
+            "recall": 0.0,
+            "TP": 0.0,
+            "TN": 285.0,
+            "FP": 16.0,
+            "FN": 50.0,
+            "threshold": 12.678494036197662,
+            "latency": 0.0,
+            "reg_level": 1.0
+        },
+        "pot_result": {
+            "f1": 0.0,
+            "precision": 0.0,
+            "recall": 0.0,
+            "TP": 0.0,
+            "TN": 286.0,
+            "FP": 15.0,
+            "FN": 50.0,
+            "threshold": 12.825128667782932,
+            "latency": 0.0
+        },
+        "bf_result": {
+            "f1": 0.2493743633623375,
+            "precision": 0.14245013839173395,
+            "recall": 0.99999980000004,
+            "TP": 50.0,
+            "TN": 0.0,
+            "FP": 301.0,
+            "FN": 0.0,
+            "threshold": 0.029900000000000003,
+            "latency": 0.0
+        }
+    },
+    {
+        "epsilon_result": {
+            "f1": 0.9999948077173445,
+            "precision": 0.9999998076923446,
+            "recall": 0.9999998076923446,
+            "TP": 52.0,
+            "TN": 598.0,
+            "FP": 0.0,
+            "FN": 0.0,
+            "threshold": 14.472646176815033,
+            "latency": 4.999500049995,
+            "reg_level": 1.0
+        },
+        "pot_result": {
+            "f1": 0.0,
+            "precision": 0.0,
+            "recall": 0.0,
+            "TP": 0.0,
+            "TN": 598.0,
+            "FP": 0.0,
+            "FN": 52.0,
+            "threshold": 18.49982261657715,
+            "latency": 0.0
+        },
+        "bf_result": {
+            "f1": 0.14814677219778527,
+            "precision": 0.07999999876923079,
+            "recall": 0.9999998076923446,
+            "TP": 52.0,
+            "TN": 0.0,
+            "FP": 598.0,
+            "FN": 0.0,
+            "threshold": 0.029900000000000003,
+            "latency": 0.0
+        }
+    },
+    {
+        "epsilon_result": {
+            "f1": 0.0,
+            "precision": 0.0,
+            "recall": 0.0,
+            "TP": 0.0,
+            "TN": 643.0,
+            "FP": 7.0,
+            "FN": 0.0,
+            "threshold": 15.375406384468079,
+            "latency": 0.0,
+            "reg_level": 1.0
+        },
+        "pot_result": {
+            "f1": 0.0,
+            "precision": 0.0,
+            "recall": 0.0,
+            "TP": 0.0,
+            "TN": 649.0,
+            "FP": 1.0,
+            "FN": 0.0,
+            "threshold": 16.1197089763243,
+            "latency": 0.0
+        },
+        "bf_result": {
+            "f1": 0.0,
+            "precision": 0.0,
+            "recall": 0.0,
+            "TP": 0.0,
+            "TN": 0.0,
+            "FP": 650.0,
+            "FN": 0.0,
+            "threshold": 0.029900000000000003,
+            "latency": 0.0
+        }
+    },
+    {
+        "epsilon_result": {
+            "f1": 0.0,
+            "precision": 0.0,
+            "recall": 0.0,
+            "TP": 0.0,
+            "TN": 510.0,
+            "FP": 21.0,
+            "FN": 20.0,
+            "threshold": 17.274368971586227,
+            "latency": 0.0,
+            "reg_level": 1.0
+        },
+        "pot_result": {
+            "f1": 0.0,
+            "precision": 0.0,
+            "recall": 0.0,
+            "TP": 0.0,
+            "TN": 522.0,
+            "FP": 9.0,
+            "FN": 20.0,
+            "threshold": 17.53243764285567,
+            "latency": 0.0
+        },
+        "bf_result": {
+            "f1": 0.07005186096849186,
+            "precision": 0.03629763999459819,
+            "recall": 0.9999995000002501,
+            "TP": 20.0,
+            "TN": 0.0,
+            "FP": 531.0,
+            "FN": 0.0,
+            "threshold": 0.029900000000000003,
+            "latency": 0.0
+        }
+    },
+    {
+        "epsilon_result": {
+            "f1": 0.0,
+            "precision": 0.0,
+            "recall": 0.0,
+            "TP": 0.0,
+            "TN": 650.0,
+            "FP": 0.0,
+            "FN": 0.0,
+            "threshold": 17.734632968902588,
+            "latency": 0.0,
+            "reg_level": 1.0
+        },
+        "pot_result": {
+            "f1": 0.0,
+            "precision": 0.0,
+            "recall": 0.0,
+            "TP": 0.0,
+            "TN": 650.0,
+            "FP": 0.0,
+            "FN": 0.0,
+            "threshold": 17.79788903091573,
+            "latency": 0.0
+        },
+        "bf_result": {
+            "f1": 0.0,
+            "precision": 0.0,
+            "recall": 0.0,
+            "TP": 0.0,
+            "TN": 0.0,
+            "FP": 650.0,
+            "FN": 0.0,
+            "threshold": 0.029900000000000003,
+            "latency": 0.0
+        }
+    }
+]

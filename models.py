@@ -3,7 +3,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 import threading
 import numpy as np
-from scipy.spatial import distance_matrix
+from sklearn.feature_selection import mutual_info_regression
+from scipy.stats import pearsonr
+
+import warnings
+from scipy.stats import pearsonr, ConstantInputWarning
 
 ########## GRU Models#################
 class GRU(nn.Module):
@@ -125,7 +129,7 @@ class TemporalConvBlock(nn.Module):
         out = self.dropout(out)
 
         # Add residual connection
-        out += residual
+        out = out + residual
 
         # Clamp to prevent extreme values
         out = torch.clamp(out, min=-1e5, max=1e5)
@@ -136,7 +140,7 @@ class TCNFeatureAggregator(nn.Module):
     def __init__(self, num_features, seq_len, different_len, kernel_size=3, dropout=0.2):
         super(TCNFeatureAggregator, self).__init__()
         self.num_features = num_features
-        self.channels = [64, 64, 64, num_features]  ## Define three layers: two intermediate layers (64 channels) + final layer (num_features)
+        self.channels = [64, 64, 64, 64, num_features]  ## Define three layers: two intermediate layers (64 channels) + final layer (num_features)
         self.init_weights()
 
         self.temporal_blocks = nn.ModuleList()
@@ -145,7 +149,7 @@ class TCNFeatureAggregator(nn.Module):
         in_channels = num_features
         
         # Use increasing dilation sizes, for example: 1, 2, 4, 8
-        dilation_sizes = [2**i for i in range(4)]
+        dilation_sizes = [2**i for i in range(5)]
         
         for i, out_channels in enumerate(self.channels):
             padding = (kernel_size - 1) * dilation_sizes[i] // 2
@@ -217,7 +221,7 @@ class SharedMemoryAttention(nn.Module):
         nn.init.xavier_uniform_(self.values)
         nn.init.xavier_uniform_(self.query_proj.weight)
 
-    def forward(self, x):
+    def forward(self, x, is_new=None):
         B, E, feat = x.shape
         x = x.transpose(1, 2)  # (B, F, E)
         
@@ -236,6 +240,134 @@ class SharedMemoryAttention(nn.Module):
         retrieved = retrieved.transpose(1, 2)  # (B, mem_dim, F)
         return retrieved
 
+class DynamicMemory(nn.Module):
+    """A simple external memory that persists across batches.
+
+    The module keeps *num_slots* learnable memory vectors of size *mem_dim*.
+    During each forward pass it 
+      1. **reads** the memory with content‑based attention, and
+      2. **writes** a compressed summary of the current TCN window back into
+         the same slots with a soft overwrite controlled by *alpha*.
+
+    Use ``reset_state`` at the start of every new encounter sequence to clear
+    or re‑initialise the memory.  The memory is *not* part of the gradient
+    graph, so it behaves like a persistent cache rather than a parameter.
+    """
+
+    def __init__(self,
+                 emb_len: int,
+                 mem_dim: int = 64,
+                 num_slots: int = 64,
+                 dropout: float = 0.1,
+                 alpha: float = 0.1):
+        super().__init__()
+        self.mem_dim = mem_dim
+        self.num_slots = num_slots
+        self.alpha = alpha
+
+        # projection for both read queries and write summaries
+        self.query_proj = nn.Linear(emb_len, mem_dim, bias=False)
+
+        # baseline (train‑time) memory initialiser
+        self.register_buffer("init_memory", torch.randn(num_slots, mem_dim) * 0.01)
+        self.dropout = nn.Dropout(dropout)
+        self.memory = None  # will be created lazily via reset_state
+
+    # ------------------------------------------------------------
+    def reset_state(self, batch_size: int, device=None):
+        """Call at the beginning of *each* new encounter sequence."""
+        if device is None:
+            device = self.init_memory.device
+        self.memory = self.init_memory.unsqueeze(0).repeat(batch_size, 1, 1).clone().to(device)
+
+    # # ------------------------------------------------------------
+    # def forward(self, x, is_new=None):
+    #     """
+    #     x : (B, W, E)  – W = window length, E = TCN embedding dim
+    #     """
+    #     # 1. lazy initialisation (safe against batch-size changes)
+    #     B, W, E = x.shape
+    #     if self.memory is None or self.memory.shape[0] != B:
+    #         self.reset_state(batch_size=B, device=x.device)
+
+    #     # 2. per-sample reset
+    #     if is_new is not None:
+    #         reset_mask = is_new.view(-1, 1, 1).to(x.device, dtype=torch.float)
+    #         self.memory = self.memory * (1.0 - reset_mask) + reset_mask * self.init_memory
+
+    #     # 3. READ
+    #     q           = self.query_proj(x)                    # (B, W, D)
+    #     q           = self.dropout(q)
+    #     attn_logits = torch.matmul(q, self.memory.transpose(1, 2))  # (B, W, S)
+    #     attn        = torch.softmax(attn_logits, dim=-1)             # (B, W, S)
+    #     retrieved   = torch.matmul(attn, self.memory)                # (B, W, D)
+
+    #     # 4. WRITE
+    #     write_vec = q.mean(dim=1, keepdim=True)     # (B, 1, D)
+    #     usage     = attn.mean(dim=1, keepdim=True)  # (B, 1, S)
+    #     update    = usage.transpose(1, 2) * write_vec  # (B, S, D)
+
+    #     with torch.no_grad():
+    #         self.memory.mul_(1.0 - self.alpha).add_(self.alpha * update)
+
+    #     return retrieved                              # (B, W, D) → fuses with st
+    # models.py  – replace DynamicMemory.forward with this
+   # ------------------------------------------------------------
+    def forward(self, x, is_new=None):
+        """
+        x : (B, E, W)   or  (B, W, E)   # auto-handled below
+        returns (B, mem_dim, W)
+        """
+        # ---------- normalise layout ---------------------------------------
+        if x.shape[1] == self.query_proj.in_features:      # (B, E, W)
+            x_t = x.transpose(1, 2)                        # -> (B, W, E)
+        elif x.shape[2] == self.query_proj.in_features:    # (B, W, E)
+            x_t = x
+        else:
+            raise ValueError("Last dim must equal emb_len")
+
+        B, W, _ = x_t.shape
+        if self.memory is None or self.memory.shape[0] != B:
+            self.reset_state(batch_size=B, device=x.device)
+
+        # ---------- per-sample reset ---------------------------------------
+        # if is_new is not None:
+        #     reset_mask = is_new.view(-1, 1, 1).to(x.device, dtype=torch.float)
+        #     # out-of-place assignment → no version bump for the old tensor
+        #     self.memory = (1.0 - reset_mask) * self.memory + reset_mask * self.init_memory
+            
+        if is_new is not None:
+            # ‣ Scalar → batch-level reset (new task)
+            if isinstance(is_new, bool) or (
+                torch.is_tensor(is_new) and is_new.ndim == 0
+            ):
+                if bool(is_new):                          # ensure Python bool
+                    self.reset_state(batch_size=B, device=x.device)
+
+            # ‣ Vector → sample-level reset (window flag)
+            else:
+                # is_new should be shape (B,)  with 0/1 or bool
+                reset_mask = is_new.view(-1, 1, 1).to(x.device, dtype=torch.float)
+                self.memory = (1.0 - reset_mask) * self.memory + reset_mask * self.init_memory
+
+        # ---------- READ  (use an immutable snapshot) ----------------------
+        mem_read = self.memory.detach().clone()           # ← key change
+        q   = self.dropout(self.query_proj(x_t))          # (B, W, D)
+        attn_logits = torch.matmul(q, mem_read.transpose(1, 2))  # (B, W, S)
+        attn        = torch.softmax(attn_logits, dim=-1)
+        retrieved   = torch.matmul(attn, mem_read)               # (B, W, D)
+        retrieved   = retrieved.transpose(1, 2)                  # (B, D, W)
+
+        # ---------- WRITE  (safe: does not affect graph) -------------------
+        write_vec = q.mean(dim=1, keepdim=True)           # (B, 1, D)
+        usage     = attn.mean(dim=1, keepdim=True)        # (B, 1, S)
+        update    = usage.transpose(1, 2) * write_vec     # (B, S, D)
+
+        with torch.no_grad():
+            # out-of-place to avoid inplace-versioning issues
+            self.memory = (1.0 - self.alpha) * self.memory + self.alpha * update
+
+        return retrieved
 ######### Gated Fusion Model##########
 class GatedFeedForwardFusion(nn.Module):
     def __init__(self, emb_len, mem_dim, out_dim):
@@ -346,7 +478,7 @@ class GraphAttentionNetwork(nn.Module):
         # Residual connection projection (if dimensions differ)
         self.residual_proj = nn.Linear(node_embedding_dim, node_embedding_dim) if not self.use_gatv2 else nn.Identity()
 
-    def forward(self, x):
+    def forward(self, x, adj_matrix=None):
         """
         x: (B, num_nodes, node_embedding_dim)
            Represents a batch of graphs, each with num_nodes, and each node has a node_embedding_dim-dimensional embedding.
@@ -369,6 +501,18 @@ class GraphAttentionNetwork(nn.Module):
         if self.use_bias:
             e = e + self.bias
 
+        if adj_matrix is not None:
+            # Mask attention scores where adj == 0
+            # e: (B, K, K), adj_matrix: (B, K, K)
+            mask = (adj_matrix == 0)
+            e = e.masked_fill(mask, float('-inf'))
+            # Identify rows where all values are -inf
+            all_inf_mask = torch.all(e == float('-inf'), dim=2, keepdim=True)
+
+            # Replace fully masked rows with zeros (equivalent to uniform softmax)
+            e = torch.where(all_inf_mask, torch.zeros_like(e), e)
+
+
         # Compute attention weights
         attention = torch.softmax(e, dim=2)   # (B, K, K)
         attention = F.dropout(attention, self.dropout, training=self.training)  # (B, K, K)
@@ -381,7 +525,6 @@ class GraphAttentionNetwork(nn.Module):
         h = h + residual
         h =h.transpose(1,2)
         return h  # (B, K, D)
-
     def _make_attention_input(self, v):
         """
         v: (B, K, D)
@@ -493,7 +636,7 @@ class GraphAttentionNetworkMH(nn.Module):
         # h = self.sigmoid(h) # If you still want nonlinearity, apply it here.
 
         return h  # (B, K, num_heads * D)
-
+    
     def _make_attention_input(self, v):
         """
         v: (B, K, D)
@@ -507,6 +650,25 @@ class GraphAttentionNetworkMH(nn.Module):
 ###########################
 
 ######## Reconstruction Model ########
+    
+class RNNDecoder(nn.Module):
+    """GRU-based Decoder network that converts latent vector into output
+    :param in_dim: number of input features
+    :param n_layers: number of layers in RNN
+    :param hid_dim: hidden size of the RNN
+    :param dropout: dropout rate
+    """
+
+    def __init__(self, in_dim, hid_dim, n_layers, dropout):
+        super(RNNDecoder, self).__init__()
+        self.in_dim = in_dim
+        self.dropout = 0.0 if n_layers == 1 else dropout
+        self.rnn = nn.GRU(in_dim, hid_dim, n_layers, batch_first=True, dropout=self.dropout)
+
+    def forward(self, x):
+        decoder_out, _ = self.rnn(x)
+        return decoder_out
+
 class ReconstructionModel(nn.Module):
     """Reconstruction Model
     :param window_size: length of the input sequence
@@ -652,48 +814,9 @@ class TemporalAttention(nn.Module):
         return context, weights
 ################
 
-### Simple RNN ###
-class ShallowRNNEncoder(nn.Module):
-    def __init__(self, 
-                 input_dim,   # number of features in the time series
-                 hidden_dim,  
-                 output_dim,  # dimension of the embedding to feed into GAT
-                 num_layers=1,
-                 dropout=0.0):
-        super(ShallowRNNEncoder, self).__init__()
-        
-        # A simple GRU (you can also use LSTM)
-        self.rnn = nn.GRU(input_size=input_dim,
-                          hidden_size=hidden_dim,
-                          num_layers=num_layers,
-                          batch_first=True,
-                          dropout=dropout if num_layers > 1 else 0.0)
-        
-        # A linear layer to map from hidden_dim -> output_dim
-        self.fc = nn.Linear(hidden_dim, output_dim)
 
-    def forward(self, x):
-        """
-        x: (batch_size, seq_len, input_dim)
-           A batch of node time-series data.
-           For example, if you have N nodes, you might process each node’s time series 
-           separately or stack them appropriately.
-        """
-        # rnn_out: (batch_size, seq_len, hidden_dim)
-        # h_n: (num_layers, batch_size, hidden_dim)
-        rnn_out, h_n = self.rnn(x)
-        
-        # We’ll use the final hidden state from the last layer as the node embedding.
-        # shape: (num_layers, batch_size, hidden_dim)
-        # Select the top layer’s hidden state:
-        h_last_layer = h_n[-1]  # (batch_size, hidden_dim)
-        
-        # Map to desired output dimension
-        out = self.fc(h_last_layer)  # (batch_size, output_dim)
-        return out
-
-######### GRUAT Implementation ##########
-class GRUAT(nn.Module):
+######### MAL_GATE Implementation ##########
+class MAL_GATE(nn.Module):
     def __init__(self, 
     num_features,
     output_size, 
@@ -701,7 +824,6 @@ class GRUAT(nn.Module):
     memory_dim,
     num_memory_slots,
     node_embed_dim,
-    num_heads,
     gru_num_layers,
     gru_hid_dim= 150, 
     tcn_emb_dim=32,
@@ -716,7 +838,7 @@ class GRUAT(nn.Module):
     ):
        
         
-        super(GRUAT, self).__init__()
+        super(MAL_GATE, self).__init__()
         self.num_features = num_features
         self.hyperparams = {
             "window_size": window_size,
@@ -726,10 +848,16 @@ class GRUAT(nn.Module):
         }
         self.epsilon = 0.5  # Distance threshold for ε-KNN graph
 
-
-        self.shallow_rnn  = ShallowRNNEncoder(num_features, gru_hid_dim, gru_hid_dim )
+        write_alpha = 0.1
         self.tcn =  TCNFeatureAggregator(num_features, window_size, tcn_emb_dim, tcn_kernel_size, dropout)
-        self.memory_module = SharedMemoryAttention(window_size, memory_dim, num_memory_slots, dropout)
+        # self.memory_module = SharedMemoryAttention(window_size, memory_dim, num_memory_slots, dropout)
+        self.memory_module = DynamicMemory(
+            emb_len=window_size,
+            mem_dim=memory_dim,
+            num_slots=num_memory_slots,
+            alpha=write_alpha,
+            dropout=dropout,
+        )
         self.gated_fusion = GatedFeedForwardFusion(window_size, memory_dim, node_embed_dim) #window_size can be replaced by tcn_emb_dim 
         self.gat = GraphAttentionNetwork(num_nodes=num_features, node_embedding_dim=node_embed_dim, dropout=dropout, alpha=alpha) #, num_heads = num_heads)
         self.gru = GRU(num_features, gru_hid_dim, gru_num_layers, dropout)
@@ -740,77 +868,56 @@ class GRUAT(nn.Module):
         self.forecasting_model = Forecasting_Model(num_features, forecast_hid_dim, output_size, forecast_n_layers, dropout)
         self.vae = VAE_UPDATED(window_size, node_embed_dim, num_features, output_size, vae_latent_dim, dropout)
   
-    
-        
-        # Fusion layer
-        # self.fc = nn.Linear(gru_hid_dim, num_features) 
-    def epsilon_knn_graph(self, features):
-        """
-        Constructs a distance-based KNN (ε-KNN) adjacency matrix while ensuring num_features remains unchanged.
-        """
-        batch_size, num_nodes, feature_dim = features.shape
-        adjacency_matrices = []
-        
-        for i in range(batch_size):  
-            feature_slice = features[i].cpu().numpy()
-            dist_matrix = np.linalg.norm(feature_slice[:, None, :] - feature_slice[None, :, :], axis=-1)
-            
-            # Ensure each node has at least ONE connection
-            adj_matrix = (dist_matrix < self.epsilon).astype(float)
 
-            # **Key Fix: Prevent Isolated Nodes**
-            for j in range(num_nodes):
-                if np.sum(adj_matrix[j]) == 0:  
-                    nearest_idx = np.argmin(dist_matrix[j])  # Find closest node
-                    adj_matrix[j, nearest_idx] = 1  # Force at least one connection
+    def hybrid_adjacency_matrix(self, x, mi_thresh=0.1, corr_thresh=0.3):
+        x_np = x.detach().cpu().numpy()  # shape: (B, W, F)
+        batch_size, window_size, num_features = x_np.shape
+        adj_matrices = []
 
-            np.fill_diagonal(adj_matrix, 0)  # Remove self-loops
-            adjacency_matrices.append(torch.tensor(adj_matrix, dtype=torch.float, device=features.device))
+        for b in range(batch_size):
+            time_window = x_np[b]  # shape: (W, F)
+            mi_matrix = np.zeros((num_features, num_features))
+            corr_matrix = np.zeros((num_features, num_features))
 
-        return torch.stack(adjacency_matrices)  # (batch_size, num_nodes, num_nodes)
-    
-    def forward(self, x):
+            for i in range(num_features):
+                for j in range(num_features):
+                    if i != j:
+                        xi = time_window[:, i]
+                        xj = time_window[:, j]
+
+                        try:
+                            mi_matrix[i, j] = mutual_info_regression(xi.reshape(-1, 1), xj)[0]
+                        except:
+                            mi_matrix[i, j] = 0
+
+                        try:
+                            with warnings.catch_warnings():
+                                warnings.simplefilter("ignore", category=ConstantInputWarning)
+                                corr_matrix[i, j], _ = pearsonr(xi, xj)
+                        except:
+                            corr_matrix[i, j] = 0
+
+            hybrid = ((mi_matrix > mi_thresh) | (np.abs(corr_matrix) > corr_thresh)).astype(float)
+            np.fill_diagonal(hybrid, 0)
+            adj_matrices.append(torch.tensor(hybrid, dtype=torch.float32))
+
+        return torch.stack(adj_matrices).to(x.device)
+
+    def forward(self, x, is_new=None):
         
-        # adj_matrix = self.epsilon_knn_graph(x)
-        # node_embedding = self.shallow_rnn(x)
-        gat_output = self.gat(x) 
+        adj_matrix = None #self.hybrid_adjacency_matrix(x)  # shape: (B, num_features, num_features)
+        gat_output = self.gat(x, adj_matrix)
+
+        # gat_output = self.gat(x) 
         short_term_tcn, tcn_forecast = self.tcn(gat_output)
-        long_term = self.memory_module(short_term_tcn)
+        long_term = self.memory_module(short_term_tcn, is_new=is_new)
         h_recon, h_end_pred = self.gated_fusion(short_term_tcn, long_term)
         
         forecast_pred = self.forecasting_model(h_end_pred) #(h_end_pred)
         reconstructed, _, _ = self.vae(h_recon)
         #reconstructed= self.recon_model(h_end_pred)
         return reconstructed, forecast_pred
-        # x shape: (batch, seq_len, num_features)
-
-        # # x = x.float()
-        # short_term_tcn, tcn_forecast = self.tcn(x)
-        # long_term = self.memory_module(short_term_tcn)
-        # node_embedding = self.gated_fusion(short_term_tcn, long_term)
-        # gat_output = self.gat(node_embedding)         # Pass node embedding to GAT
-        
-        # # Alternative #1
-        # # reconstructed, _, _ = self.vae(gat_output)
-        # # forecast_pred, _ =  self.gru(gat_output)
-        # # return gat_output, reconstructed, forecast_pred
-
-        # # Alternative #2
-        # gru_input = gat_output.transpose(1, 2) 
-        # out, h_end=  self.gru(gru_input)
-
-        # # Apply Temporal Attention
-        # context_vector, attn_weights = self.temporal_attention(out)
-
-
-        # h_recon = out # because we want to reconstruct the entire sequence
-        # h_end_pred = h_end.view(x.shape[0], -1)   # Hidden state for last timestamp
-        # forecast_pred = self.forecasting_model(h_end_pred) #(h_end_pred)
-        # reconstructed, _, _ = self.vae(h_recon)
-        # #reconstructed= self.recon_model(h_end_pred)
-        # return reconstructed, forecast_pred
-
-
+    
 
     def get_hyperparam_summary(self):
         # Return a nicely formatted string or dict
