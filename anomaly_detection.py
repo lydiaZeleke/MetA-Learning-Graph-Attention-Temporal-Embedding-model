@@ -4,6 +4,7 @@ from library.eval_methods import *
 from utils import *
 import pandas as pd
 import matplotlib.pyplot as plt
+from matplotlib.patches import Patch
 import seaborn as sns
 import numpy as np
 
@@ -235,7 +236,10 @@ class AnomalyDetector:
             train_pred_df.to_pickle(f"{self.save_path}/train_output.pkl")
             test_pred_df.to_pickle(f"{self.save_path}/test_output.pkl")
 
+        ### Explainability Visualizations 
         self.plot_anomaly_detection_results(test_pred_df)
+
+
         print("-- Done.")
 
     def adjust_anomaly_scores(self, scores, dataset, is_train, lookback):
@@ -318,87 +322,6 @@ class AnomalyDetector:
 
         return adjusted_scores
     
-
-
-   
-    # def plot_anomaly_detection_results(self, df, num_features=10):
-    #     """
-    #     Generate subplots for each feature in the dataset.
-    #     Each feature has two subplots:
-    #     1. The time series with forecasted and reconstructed data.
-    #     2. The anomaly scores with predicted anomalies highlighted.
-        
-    #     :param df: Pandas DataFrame containing forecast, reconstruction, true values, and anomaly scores.
-    #     :param num_features: Number of features to plot.
-    #     """
-        
-    #     feature_labels = [
-    #         "Speed (ft/s)", 
-    #         "Vertical Speed (ft/s)", 
-    #         "Altitude (ft)", 
-    #         "Latitude (rad)", 
-    #         "Longitude (rad)", 
-    #         "North Dot (ft/s)", 
-    #         "East Dot (ft/s)", 
-    #         "Yaw (deg)", 
-    #         "Pitch (deg)", 
-    #         "Roll (deg)", 
-    #         "Encounter Number"
-    #     ]
-    #     fig, axes = plt.subplots(num_features, 2, figsize=(14, num_features * 3))
-
-    #     encounter = 87
-    #     enc_indice =  df.index[df['True_10'] == encounter].tolist()
-    #     enc_first_idx, enc_last_idx =  enc_indice[0], enc_indice[-1]
-    #     df = df[enc_first_idx:enc_last_idx]
-    #     time_steps = np.arange(len(df))  # Time indices
-
-    #     for i in range(num_features):
-    #         # Extract relevant columns
-    #         true_values = df[f'True_{i}']
-    #         forecasted = df[f'Forecast_{i}']
-    #         reconstructed = df[f'Recon_{i}']
-    #         anomaly_scores = df[f'A_Score_{i}']
-            
-    #         # Identify true anomalies (highlight in first plot)
-    #         if 'A_True_Global' in df.columns:
-    #             true_anomalies = df['A_True_Global'] == 1
-    #         else:
-    #             true_anomalies = np.zeros_like(true_values, dtype=bool)  # Placeholder if true labels are missing
-            
-    #         # Identify predicted anomalies (highlight in second plot)
-    #         predicted_anomalies = df[f'A_Pred_{i}'] == 1 if f'A_Pred_{i}' in df.columns else np.zeros_like(anomaly_scores, dtype=bool)
-
-    #         # First subplot (Timeseries data with forecast & reconstruction)
-    #         ax1 = axes[i, 0] if num_features > 1 else axes[0]
-    #         ax1.plot(time_steps, true_values, label="True Data", color="black", linewidth=1)
-    #         ax1.plot(time_steps, forecasted, label="Forecasted", color="blue", linestyle="dashed", alpha=0.7)
-    #         ax1.plot(time_steps, reconstructed, label="Reconstructed", color="red", linestyle="dotted", alpha=0.7)
-            
-    #         # Highlight true anomalies
-    #         ax1.fill_between(time_steps, min(true_values), max(true_values), where=true_anomalies, color='lightgreen', alpha=0.5, label="True Anomalies")
-            
-    #         ax1.set_title(f"{feature_labels[i]}: Timeseries Data & Predictions")
-    #         ax1.legend()
-    #         ax1.set_xlabel("Time Step")
-    #         ax1.set_ylabel("Value")
-
-    #         # Second subplot (Anomaly scores)
-    #         ax2 = axes[i, 1] if num_features > 1 else axes[1]
-    #         ax2.plot(time_steps, anomaly_scores, label="Anomaly Score", color="purple")
-            
-    #         # Highlight predicted anomalies
-    #         ax2.fill_between(time_steps, min(anomaly_scores), max(anomaly_scores), where=predicted_anomalies, color='lightpink', alpha=0.5, label="Predicted Anomalies")
-            
-    #         ax2.set_title(f"Feature {i}: Anomaly Score")
-    #         ax2.legend()
-    #         ax2.set_xlabel("Time Step")
-    #         ax2.set_ylabel("Anomaly Score")
-
-    #     plt.tight_layout()
-    #     plt.show(block=True)
- 
-  
     def plot_anomaly_detection_results(self, df, num_features=2, max_subplots_per_figure=3):
         """
         Generate multiple figures for anomaly detection results.
@@ -421,27 +344,36 @@ class AnomalyDetector:
         # Feature labels for visualization
         feature_labels = [
             "Speed (ft/s)", "Vertical Speed (ft/s)", "Altitude (ft)", "Latitude (rad)", "Longitude (rad)",
-            "North Dot (ft/s)", "East Dot (ft/s)", "Yaw (deg)", "Pitch (deg)", "Roll (deg)", "Encounter Number"
+            "North Dot (ft/s)", "East Dot (ft/s)", "Yaw (deg)", "Pitch (deg)", "Roll (deg)"
         ]
         field_labels = [
             "speed_ftps",
-            "hdot_ftps"
-             
-        ]
-        #     "latitude_rad",
-        #     "longitude_rad",
-        #     "Ndot_ftps",
-        #     "Edot_ftps",
-        #     "psi_deg",
-        #     "theta_deg",
-        #     "phi_deg",
-        #     "enc_num"
-        # ]        
+            "hdot_ftps",
+            "up_ft",
+            "latitude_rad",
+            "longitude_rad",
+            "Ndot_ftps",
+            "Edot_ftps",
+            "psi_deg",
+            "theta_deg",
+            "phi_deg"
+        ]        
+        num_features = len(field_labels)
 
+        T = pd.read_csv(path.join('datasets/CUSTOM', 'test.csv'))
+        trimmed_enc_ids = T["enc_num"].values[:len(T) - self.window_size]
+
+        # Make sure the lengths match
+        if len(df) != len(trimmed_enc_ids):
+            raise ValueError(f"Length mismatch: df={len(df)} vs T-trimmed={len(trimmed_enc_ids)}")
+
+        # Copy into df
+        df["enc_num"] = trimmed_enc_ids
         data = df.copy()
         # Select the last three encounters in the dataset
-        last_encounters = df["True_10"].unique()[-1:]  
-        df = df[df["True_10"].isin(last_encounters)]
+        # last_encounters = df["enc_num"].unique()[-1:]  
+        target_enc = 71 # 1, 5, 11,13, 19, 23, 27 , 56                     # <- choose the encounter you want
+        df = df[df["enc_num"] == target_enc]
         
         # Get the corrupted fields for these encounters
         corrupted_fields_dict = dict(zip(enc_corruption_df["enc_num"], enc_corruption_df["corrupted_fields"]))
@@ -475,7 +407,7 @@ class AnomalyDetector:
                 
                 
                 # Identify corrupted fields for the encounters in this subset
-                corrupted_mask = df["True_10"].astype(int).map(lambda x: field_labels[feature_idx] in corrupted_fields_dict.get(x, []))
+                corrupted_mask = df["enc_num"].astype(int).map(lambda x: field_labels[feature_idx] in corrupted_fields_dict.get(x, []))
                 corrupted_mask = (df["A_True_Global"] == 1) & corrupted_mask 
                 
                 # Identify predicted anomalies (highlight in second plot)
@@ -506,7 +438,7 @@ class AnomalyDetector:
                 ax2.plot(time_steps, anomaly_scores, label="Anomaly Score", color="purple")
                 
                 # Highlight predicted anomalies
-                ax2.fill_between(time_steps, min(anomaly_scores), max(anomaly_scores), where=corrupted_mask, color='lightpink', alpha=0.5, label="Predicted Anomalies")
+                ax2.fill_between(time_steps, min(anomaly_scores), max(anomaly_scores), where=predicted_anomalies, color='lightpink', alpha=0.5, label="Predicted Anomalies")
                 
                 ax2.set_title(f"{feature_labels[feature_idx]}: Anomaly Scores")
                 ax2.legend()
@@ -519,5 +451,7 @@ class AnomalyDetector:
         # Show all figures after they are created
         for fig in figures:
             plt.figure(fig.number)
-            plt.show(block=True)
-
+        plt.show(block=True)
+            # for fig in figures:
+            #     fig.show()           # or just keep the loop that builds them
+            # plt.show(block=True)      # <- single blocking show at the very end

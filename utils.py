@@ -212,7 +212,7 @@ def generate_data_loaders2(
     return train_loader, val_loader, test_loader
 
 #########################################
-def generate_data_loaders(train_dataset, flag, batch_size, val_split=0.1, shuffle=False, test_dataset=None):
+def generate_data_loaders(train_dataset,  batch_size, val_split=0.1, shuffle=False, test_dataset=None):
     train_loader, val_loader, test_loader = None, None, None
     dataset_size = len(train_dataset)
     split = int(np.floor(val_split * dataset_size))

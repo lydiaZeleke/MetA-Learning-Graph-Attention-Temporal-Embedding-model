@@ -15,6 +15,7 @@ import higher
 from copy import deepcopy
 from anomaly_detection import AnomalyDetector
 from library.eval_methods import *
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 torch.autograd.set_detect_anomaly(True)
 
@@ -60,6 +61,39 @@ class Trainer:
         self.outer_optimizer = torch.optim.Adam(self.model.parameters(), lr=self.meta_lr)
         self.model.to(self.device)
         # self.model = torch.compile(self.model)
+
+
+    def add_timing_to_meta_train(meta_train_function):
+        def wrapper(self, tasks, num_epochs=5, adaptation_steps=1):
+            epoch_logs_total = {"support": [], "query": []}
+            all_epoch_times = []
+            task_times = {task_id: [] for task_id in tasks.keys()}
+
+            for epoch in range(num_epochs):
+                start_epoch = time.time()
+                epoch_logs = meta_train_function(self, tasks, num_epochs=1, adaptation_steps=adaptation_steps)
+                end_epoch = time.time()
+
+                all_epoch_times.append(end_epoch - start_epoch)
+                for log in epoch_logs["support"]:
+                    task_times[log["task_id"]].append(end_epoch - start_epoch)
+
+                epoch_logs_total["support"].extend(epoch_logs["support"])
+                epoch_logs_total["query"].extend(epoch_logs["query"])
+                print(f"[Timing] Epoch {epoch+1}/{num_epochs} took {end_epoch - start_epoch:.2f} seconds")
+
+            # Save timing logs
+            timestamp = datetime.now().strftime("%d%m%Y_%H%M%S")
+            summary = {
+                "task_id": list(task_times.keys()),
+                "avg_task_train_time_sec": [sum(v)/len(v) for v in task_times.values()],
+            }
+            summary["epoch_avg_time_sec"] = [sum(all_epoch_times)/len(all_epoch_times)] * len(summary["task_id"])
+            pd.DataFrame(summary).to_csv(f"meta_training_time_log_{timestamp}.csv", index=False)
+            print(f"[Saved] meta_training_time_log_{timestamp}.csv")
+
+            return epoch_logs_total
+        return wrapper
 
            
     def count_parameters(self, model):
@@ -107,14 +141,122 @@ class Trainer:
         # Example from your code
         prediction_loss = torch.sqrt(self.pred_criterion(targets, preds))
         recon_loss = torch.sqrt(self.recon_criterion(inputs, recons))
-        return prediction_loss, recon_loss, prediction_loss + 0.8 * recon_loss
+        return prediction_loss, recon_loss, prediction_loss + 0.6 * recon_loss
+
+
+    @add_timing_to_meta_train
+
+    def parallel_meta_train(self, tasks, num_epochs=5, adaptation_steps=1):
+
+        epoch_logs = {"support": [], "query": []}
+
+        for epoch in range(num_epochs):
+            meta_loss_total = 0.0
+            support_logs, query_logs = [], []
+
+            def train_task_on_device(task_id, support_loader, query_loader, device):
+                model_device = self.model.to(device)
+                model_device.train()
+                meta_loss = 0.0
+                support_result = {}
+                query_result = {}
+
+                with higher.innerloop_ctx(
+                    model_device,
+                    optim.SGD(model_device.parameters(), lr=self.inner_lr),
+                    copy_initial_weights=True,
+                    track_higher_grads=False
+                ) as (fmodel, diffopt):
+
+                    # Inner loop
+                    support_loss_accum = support_pred_loss_accum = support_recon_loss_accum = 0.0
+                    for _ in range(adaptation_steps):
+                        for x_sup, y_sup in support_loader:
+                            x_sup, y_sup = x_sup[:, :, :-1].to(device), y_sup[:, :, :-1].to(device)
+                            recons_sup, preds_sup = fmodel(x_sup, True)
+
+                            if self.target_dim and self.target_dim[0] is not None:
+                                x_sup = x_sup[:, :, self.target_dim].squeeze(-1)
+                                y_sup = y_sup[:, :, self.target_dim].squeeze(-1)
+
+                            if preds_sup.ndim == 3:
+                                preds_sup = preds_sup.squeeze(1)
+                            if y_sup.ndim == 3:
+                                y_sup = y_sup.squeeze(1)
+
+                            pred_loss_sup, recon_loss_sup, loss_sup = self.compute_loss(x_sup, y_sup, recons_sup, preds_sup)
+                            support_loss_accum += loss_sup
+                            support_pred_loss_accum += pred_loss_sup
+                            support_recon_loss_accum += recon_loss_sup
+
+                        support_loss_accum /= len(support_loader)
+                        diffopt.step(support_loss_accum)
+
+                    # Outer loop
+                    query_loss_accum = query_pred_loss_accum = query_recon_loss_accum = 0.0
+                    for x_q, y_q in query_loader:
+                        x_q, y_q = x_q[:, :, :-1].to(device), y_q[:, :, :-1].to(device)
+                        recons_q, preds_q = fmodel(x_q)
+
+                        if self.target_dim and self.target_dim[0] is not None:
+                            x_q = x_q[:, :, self.target_dim].squeeze(-1)
+                            y_q = y_q[:, :, self.target_dim].squeeze(-1)
+
+                        if preds_q.ndim == 3:
+                            preds_q = preds_q.squeeze(1)
+                        if y_q.ndim == 3:
+                            y_q = y_q.squeeze(1)
+
+                        pred_loss_q, recon_loss_q, loss_q = self.compute_loss(x_q, y_q, recons_q, preds_q)
+                        query_loss_accum += loss_q
+                        query_pred_loss_accum += pred_loss_q
+                        query_recon_loss_accum += recon_loss_q
+
+                    query_loss_accum /= len(query_loader)
+                    meta_loss += query_loss_accum
+
+                    support_result["task_id"] = task_id
+                    support_result["pred_loss"] = support_pred_loss_accum.item()
+                    support_result["recon_loss"] = support_recon_loss_accum.item()
+                    support_result["total_loss"] = support_loss_accum.item()
+
+                    query_result["task_id"] = task_id
+                    query_result["pred_loss"] = query_pred_loss_accum.item()
+                    query_result["recon_loss"] = query_recon_loss_accum.item()
+                    query_result["total_loss"] = query_loss_accum.item()
+
+                return meta_loss, support_result, query_result
+
+            futures = []
+            device_ids = [f'cuda:{i}' for i in range(torch.cuda.device_count())]
+            device_pool = device_ids * (len(tasks) // len(device_ids) + 1)
+            with ThreadPoolExecutor(max_workers=len(device_ids)) as executor:
+                for i, (task_id, (support_loader, query_loader)) in enumerate(tasks.items()):
+                    device = torch.device(device_pool[i % len(device_ids)])
+                    futures.append(executor.submit(train_task_on_device, task_id, support_loader, query_loader, device))
+
+                for future in as_completed(futures):
+                    meta_loss, support_log, query_log = future.result()
+                    meta_loss_total += meta_loss
+                    support_logs.append(support_log)
+                    query_logs.append(query_log)
+
+            # Outer loop update
+            meta_loss_total.backward()
+            self.outer_optimizer.step()
+            self.outer_optimizer.zero_grad()
+
+            epoch_logs["support"].extend(support_logs)
+            epoch_logs["query"].extend(query_logs)
+            print(f"[Epoch {epoch + 1}/{num_epochs}] done.")
+
+        return epoch_logs
 
     def meta_train(self, tasks, num_epochs=5, adaptation_steps=1):
         epoch_logs = {"support": [], "query": []}
         write_logs = self.generate_csv_log_writer(is_meta_train=True)
 
-        # task_items = list(tasks.items())
-        # random.shuffle(task_items)
+        task_times, support_task_times, query_task_times = [],[],[]
 
         for epoch in range(num_epochs):
             self.model.train()
@@ -136,6 +278,7 @@ class Trainer:
                     # ---- Inner Loop ----
                     support_loss_accum = support_pred_loss_accum = support_recon_loss_accum = 0.0
                     for _ in range(adaptation_steps):
+                        support_start_time = time.time()
                         for (x_sup, y_sup) in tqdm(support_loader, desc=f"Task-Specific Training - task: {task_id}"):
 
                             x_sup, y_sup = x_sup[:, :, :-1].to(self.device), y_sup[:, :, :-1].to(self.device)
@@ -159,6 +302,10 @@ class Trainer:
                         support_recon_loss_accum /= len(support_loader)
                         diffopt.step(support_loss_accum)
 
+                    support_end_time = time.time()
+                    support_task_times.append(support_end_time-support_start_time)
+
+                    query_start_time = time.time()
                     # ---- Outer Loop (Query) ----
                     query_loss_accum = query_pred_loss_accum = query_recon_loss_accum = 0.0
                     for (x_q, y_q) in tqdm(query_loader, desc=f"Meta-Training - task: {task_id}"):
@@ -174,6 +321,10 @@ class Trainer:
                         query_loss_accum += loss_q
                         query_pred_loss_accum += pred_loss_q
                         query_recon_loss_accum += recon_loss_q
+                    
+                    
+                    query_end_time = time.time()
+                    query_task_times.append(query_end_time-query_start_time)
 
                     query_loss_accum /= len(query_loader)
                     query_pred_loss_accum /= len(query_loader)
@@ -205,6 +356,16 @@ class Trainer:
             self.outer_optimizer.step()
 
             print(f"[Epoch {epoch+1}/{num_epochs}] done.")
+
+            avg_support_time = sum(support_task_times) / len(support_task_times)
+            avg_query_time = sum(query_task_times) / len(query_task_times)
+            avg_total_time = avg_support_time + avg_query_time
+
+            print(f"[Epoch {epoch+1}/{num_epochs}] done.")
+            print(f"  Avg support time per task: {avg_support_time:.4f} sec")
+            print(f"  Avg query time per task:   {avg_query_time:.4f} sec")
+            print(f"  Avg total training time:   {avg_total_time:.4f} sec")
+
 
         write_logs(epoch_logs["support"], epoch_logs["query"])
 
@@ -388,13 +549,13 @@ class Trainer:
             prediction_train_loss = []
             reconstruction_train_loss = []
             combined_train_loss = []
-            for batch_idx, (inputs, targets, is_new) in enumerate(tqdm(self.train_loader, desc="Training")):
-
+            # for batch_idx, (inputs, targets, is_new) in enumerate(tqdm(self.train_loader, desc="Training")): # Use for hybrid graph case
+            for batch_idx, (inputs, targets) in enumerate(tqdm(self.train_loader, desc="Training")):
                 assert not torch.isnan(inputs).any(), f"NaNs detected in data at epoch {epoch}, batch {batch_idx}"
                 assert not torch.isnan(targets).any(), f"NaNs detected in labels at epoch {epoch}, batch {batch_idx}"
         
                 inputs, targets = inputs.to(self.device), targets.to(self.device)
-                is_new   = is_new.to(self.device)        # shape (B,)
+                is_new   = None #is_new.to(self.device)        # shape (B,)
 
                 inputs_org = inputs
                 self.optimizer.zero_grad()
@@ -417,7 +578,7 @@ class Trainer:
                
                 prediction_loss = torch.sqrt(self.pred_criterion(targets, preds))
                 recon_loss = torch.sqrt(self.recon_criterion(inputs, recons))
-                loss = prediction_loss + recon_loss
+                loss = prediction_loss + 0.6*recon_loss
 
                 # if torch.isnan(prediction_loss) or torch.isnan(recon_loss):
                 #     print(f'batch indx for NaN loss: {batch_idx}')
@@ -482,8 +643,8 @@ class Trainer:
             loader = self.val_loader
          
         with torch.no_grad():
-            for batch_idx, (inputs, targets, is_new) in enumerate(tqdm(loader, desc="Validation")):
-                inputs, targets, is_new = inputs.to(self.device), targets.to(self.device),is_new.to(self.device)
+            for batch_idx, (inputs, targets) in enumerate(tqdm(loader, desc="Validation")):
+                inputs, targets, is_new = inputs.to(self.device), targets.to(self.device),None #is_new.to(self.device)
                 # targets = targets.squeeze(1)
                 # Forward pass
                 recons, preds = self.model(inputs, is_new)
@@ -516,7 +677,7 @@ class Trainer:
         recon_epoch_val_loss = np.sqrt((recon_val_loss ** 2).mean())
         self.losses["val_reconstruction"].append(recon_epoch_val_loss)
 
-        combined_epoch_val_loss = prediction_epoch_val_loss + recon_epoch_val_loss
+        combined_epoch_val_loss = prediction_epoch_val_loss + 0.6 * recon_epoch_val_loss
         self.losses["val_combined"].append(combined_epoch_val_loss)
   
         # # avg_loss = val_loss / len(self.val_loader)

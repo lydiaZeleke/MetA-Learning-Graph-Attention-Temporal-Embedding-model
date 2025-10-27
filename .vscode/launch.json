@@ -8,9 +8,10 @@
             "name": "Python: Preprocess or Execute",
             "type": "python",
             "request": "launch",
-            "program": "${workspaceFolder}/main.py",
-            // "args": ["--dataset", "CUSTOM", "--normalize", "False"],
-            "args": ["--dataset", "MSL", "--normalize", "False", "--meta_training", "False"],
+            "program": "${workspaceFolder}/predict.py",
+            // "args": ["--dataset", "CUSTOM", "--normalize", "False"], //conventional training 
+            // "args": ["--dataset", "CUSTOM", "--normalize", "False", "--meta_training", "True"], //meta-learning arg
+            "args":["--dataset", "CUSTOM", "--normalize", "False", "--load_path", "output/Custom/24082025_211433"], //use with predict.py
             "env": {
                 "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"
               },

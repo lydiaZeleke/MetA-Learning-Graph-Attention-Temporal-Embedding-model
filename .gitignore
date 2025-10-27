@@ -185,5 +185,18 @@ HP_Logs/
 # Ignore backup files and results
 backup_files_results/
 logs/
+figs/*
+meta_training_logs/*
+meta_evaluation_results/*
 .vscode/
 .DS_Store
+
+#Ignore specifc python files
+model_version_1.py
+model_version_2.py
+trainer_backup.py
+local_anomaly_detection.py
+eda.ipynb
+
+*.json
+*.png

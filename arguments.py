@@ -24,6 +24,14 @@ def get_parser():
         default = 'min_max',  
         help="Normalization technique to use: 'min_max' or 'z-score'."
     )
+    # in arguments.py, inside get_parser()
+    parser.add_argument(
+        "--load_path",
+        type=str,
+        default=None,
+        help="Path to directory containing model.pt (for prediction only)"
+    )
+
     parser.add_argument("--dataset", type=str.upper, default="SMD")
     parser.add_argument("--meta_training", type=str2bool, default=False)
     parser.add_argument("--group", type=str, default="1-1", help="Required for SMD dataset. <group_index>-<index>")
@@ -88,6 +96,6 @@ def get_parser():
 
 
     parser.add_argument("--test_adaptation_steps", type=int, default=1)
-    parser.add_argument("--train_adaptation_steps", type=int, default=2)
+    parser.add_argument("--train_adaptation_steps", type=int, default=1)
 
     return parser

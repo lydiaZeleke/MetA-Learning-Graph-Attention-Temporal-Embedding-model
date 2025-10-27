@@ -850,14 +850,14 @@ class MAL_GATE(nn.Module):
 
         write_alpha = 0.1
         self.tcn =  TCNFeatureAggregator(num_features, window_size, tcn_emb_dim, tcn_kernel_size, dropout)
-        # self.memory_module = SharedMemoryAttention(window_size, memory_dim, num_memory_slots, dropout)
-        self.memory_module = DynamicMemory(
-            emb_len=window_size,
-            mem_dim=memory_dim,
-            num_slots=num_memory_slots,
-            alpha=write_alpha,
-            dropout=dropout,
-        )
+        self.memory_module = SharedMemoryAttention(window_size, memory_dim, num_memory_slots, dropout)
+        # self.memory_module = DynamicMemory(
+        #     emb_len=window_size,
+        #     mem_dim=memory_dim,
+        #     num_slots=num_memory_slots,
+        #     alpha=write_alpha,
+        #     dropout=dropout,
+        # )
         self.gated_fusion = GatedFeedForwardFusion(window_size, memory_dim, node_embed_dim) #window_size can be replaced by tcn_emb_dim 
         self.gat = GraphAttentionNetwork(num_nodes=num_features, node_embedding_dim=node_embed_dim, dropout=dropout, alpha=alpha) #, num_heads = num_heads)
         self.gru = GRU(num_features, gru_hid_dim, gru_num_layers, dropout)

@@ -112,10 +112,16 @@ if __name__ == "__main__":
 
      #''''''''''' BASE MODEL IMPLEMENTATION '''''''''''''#
     else:
-        train_dataset = SlidingWindowDataset3(x_train, window_size, target_dims) if dataset.upper() == 'CUSTOM' else SlidingWindowDataset(x_train, window_size, target_dims)
-        test_dataset = SlidingWindowDataset3(x_test, window_size, target_dims) if dataset.upper() == 'CUSTOM' else SlidingWindowDataset(x_test, window_size, target_dims)
+        train_dataset = SlidingWindowDataset2(x_train, window_size, target_dims) if dataset.upper() == 'CUSTOM' else SlidingWindowDataset(x_train, window_size, target_dims)
+        test_dataset = SlidingWindowDataset2(x_test, window_size, target_dims) if dataset.upper() == 'CUSTOM' else SlidingWindowDataset(x_test, window_size, target_dims)
 
-        train_loaders, val_loaders, test_loaders = generate_data_loaders2(
+        # if using hybrid graph approach
+        # SlidingWindowDataset2() function call changes to SlidingWindowDataset3()
+        #     train_loaders, val_loaders, test_loaders = generate_data_loaders2(
+        #         train_dataset, batch_size, val_split, shuffle_dataset, test_dataset=test_dataset
+        #     )
+        # else:
+        train_loaders, val_loaders, test_loaders = generate_data_loaders(
             train_dataset, batch_size, val_split, shuffle_dataset, test_dataset=test_dataset
         )
  
