@@ -185,9 +185,9 @@ HP_Logs/
 # Ignore backup files and results
 backup_files_results/
 logs/
-figs/*
-meta_training_logs/*
-meta_evaluation_results/*
+figs/
+meta_training_logs/
+meta_evaluation_results/
 .vscode/
 .DS_Store
 
