@@ -23,7 +23,21 @@ Sensor uncertainties can degrade alerting and guidance reliability, eroding oper
    cd mal-gate
 
    Usage
-1. **Running the Model**
+2. **Environment Setup:**
+
+   Create and activate a virtual environment:
+```bash
+python -m venv venv
+source venv/bin/activate # On Windows: venv\Scripts\activate 
+```
+3. **Dependencies Installation:**
+Install all required Python packages:
+
+```bash
+pip install -r requirements.txt
+```
+
+4. **Running the Model**
 
 #### Conventional Training (without meta-learning):
 
@@ -31,13 +45,13 @@ Sensor uncertainties can degrade alerting and guidance reliability, eroding oper
 python train.py --dataset CUSTOM --normalize False
 ```
 
-## Meta-Learning Training (with meta-learning enabled):
+#### Meta-Learning Training (with meta-learning enabled):
 
 ```bash
 python train.py --dataset CUSTOM --normalize False --meta_training True
 ```
 
-## Inference (using a trained model for anomaly detection):
+#### Inference (using a trained model for anomaly detection):
 ```bash
 python predict.py --dataset CUSTOM --normalize False --load_path output/Custom/24082025_211433
 ```
